@@ -1,5 +1,6 @@
 import { DataTypes } from 'sequelize';
 import sequelize from '../config/database.js';
+import bcrypt from 'bcryptjs';
 
 const OTP = sequelize.define('OTP', {
     id: {
@@ -35,12 +36,22 @@ const OTP = sequelize.define('OTP', {
         {
             fields: ['expiresAt']
         }
-    ]
+    ],
+    hooks: {
+        beforeCreate: async (otp) => {
+            if (otp.otp) {
+                const salt = await bcrypt.genSalt(10);
+                otp.otp = await bcrypt.hash(otp.otp, salt);
+            }
+        }
+    }
 });
 
-// Method to check if OTP is valid
-OTP.prototype.isValid = function () {
-    return !this.isUsed && new Date() < this.expiresAt;
+// Method to verify OTP
+OTP.prototype.verifyOTP = async function (enteredOtp) {
+    if (this.isUsed) return false;
+    if (new Date() > this.expiresAt) return false;
+    return await bcrypt.compare(enteredOtp, this.otp);
 };
 
 export default OTP;

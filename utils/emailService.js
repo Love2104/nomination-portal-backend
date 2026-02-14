@@ -3,7 +3,8 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-// Create transporter - simplified for Gmail
+// Create transporter using Gmail service
+// Ensure EMAIL_USER and EMAIL_PASSWORD (App Password) are set in .env
 const transporter = nodemailer.createTransport({
   service: 'gmail',
   auth: {
@@ -12,124 +13,83 @@ const transporter = nodemailer.createTransport({
   }
 });
 
-// Verify transporter configuration
-transporter.verify((error, success) => {
+// Verify connection configuration
+transporter.verify(function (error, success) {
   if (error) {
-    console.error('❌ Email service error:', error.message);
-    console.log('⚠️  Please configure EMAIL_USER and EMAIL_PASSWORD in .env');
+    console.error('❌ Email Service Error:', error);
   } else {
-    console.log('✅ Email service ready');
+    console.log('✅ Email Service Ready');
   }
 });
 
-// Generate 6-digit OTP
+/**
+ * Generate a 6-digit numeric OTP
+ * @returns {string} OTP
+ */
 export const generateOTP = () => {
   return Math.floor(100000 + Math.random() * 900000).toString();
 };
 
-// Send OTP email
-export const sendOTPEmail = async (email, otp) => {
-  try {
-    const mailOptions = {
-      from: process.env.EMAIL_FROM || `"IITK Election Commission" <${process.env.EMAIL_USER}>`,
-      to: email,
-      subject: 'Your OTP for IITK Election Portal Registration',
-      html: `
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <style>
-            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-            .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-            .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
-            .content { background: #f9f9f9; padding: 30px; border-radius: 0 0 10px 10px; }
-            .otp-box { background: white; border: 2px dashed #667eea; padding: 20px; text-align: center; font-size: 32px; font-weight: bold; letter-spacing: 8px; margin: 20px 0; border-radius: 8px; }
-            .footer { text-align: center; margin-top: 20px; font-size: 12px; color: #666; }
-            .note { font-size: 13px; color: #666; background: #fff; padding: 10px; border-radius: 4px; border-left: 3px solid #667eea; margin-top: 20px; }
-          </style>
-        </head>
-        <body>
-          <div class="container">
+/**
+ * Send OTP Email
+ * @param {string} to - Recipient email
+ * @param {string} otp - The OTP code
+ * @param {string} type - 'verification' or 'reset'
+ */
+export const sendOTPEmail = async (to, otp, type = 'verification') => {
+  const subject = type === 'reset'
+    ? 'Password Reset Request - IITK Election Portal'
+    : 'Verify Your Email - IITK Election Portal';
+
+  const title = type === 'reset' ? 'Password Reset' : 'Email Verification';
+  const message = type === 'reset'
+    ? 'Use the OTP below to reset your password. If you did not request this, please ignore this email.'
+    : 'Thank you for registering. Use the OTP below to verify your email address.';
+
+  const html = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <style>
+            body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f4f4; margin: 0; padding: 0; }
+            .container { max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+            .header { background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%); color: #ffffff; padding: 30px; text-align: center; }
+            .content { padding: 40px; text-align: center; color: #333333; }
+            .otp-code { background-color: #f0f4f8; border: 2px dashed #1e3c72; color: #1e3c72; font-size: 36px; font-weight: bold; letter-spacing: 8px; padding: 20px; margin: 30px 0; display: inline-block; border-radius: 8px; }
+            .footer { background-color: #f9f9f9; padding: 20px; text-align: center; font-size: 12px; color: #888888; border-top: 1px solid #eeeeee; }
+        </style>
+    </head>
+    <body>
+        <div class="container">
             <div class="header">
-              <h1>🗳️ IITK Election Commission</h1>
-              <p>Nomination Portal Registration</p>
+                <h1>${title}</h1>
             </div>
             <div class="content">
-              <h2>Verify Your Email</h2>
-              <p>Hello,</p>
-              <p>Thank you for registering with the IITK Election Commission Nomination Portal. Please use the following OTP to complete your registration:</p>
-              <div class="otp-box">${otp}</div>
-              <p><strong>This OTP is valid for ${process.env.OTP_EXPIRE_MINUTES || 10} minutes.</strong></p>
-              <p>If you didn't request this OTP, please ignore this email.</p>
-              <div class="footer">
-                <p>© ${new Date().getFullYear()} IITK Election Commission. All rights reserved.</p>
-              </div>
+                <p>Hello,</p>
+                <p>${message}</p>
+                <div class="otp-code">${otp}</div>
+                <p>This OTP is valid for <strong>10 minutes</strong>.</p>
             </div>
-          </div>
-        </body>
-        </html>
-      `
-    };
+            <div class="footer">
+                <p>&copy; ${new Date().getFullYear()} IITK Election Commission. All rights reserved.</p>
+            </div>
+        </div>
+    </body>
+    </html>
+    `;
 
-    const info = await transporter.sendMail(mailOptions);
-    console.log('✅ OTP email sent:', info.messageId);
-    return { success: true, messageId: info.messageId };
-  } catch (error) {
-    console.error('❌ Error sending OTP email:', error);
-    throw new Error('Failed to send OTP email');
-  }
-};
-
-// Send Password Reset OTP email
-export const sendPasswordResetEmail = async (email, otp) => {
   try {
-    const mailOptions = {
-      from: process.env.EMAIL_FROM || `"IITK Election Commission" <${process.env.EMAIL_USER}>`,
-      to: email,
-      subject: 'Reset Your Password - IITK Election Portal',
-      html: `
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <style>
-            body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-            .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-            .header { background: linear-gradient(135deg, #ff9a9e 0%, #fecfef 99%, #fecfef 100%); color: #555; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
-            .content { background: #f9f9f9; padding: 30px; border-radius: 0 0 10px 10px; }
-            .otp-box { background: white; border: 2px dashed #ff9a9e; padding: 20px; text-align: center; font-size: 32px; font-weight: bold; letter-spacing: 8px; margin: 20px 0; border-radius: 8px; color: #ff6b6b; }
-            .footer { text-align: center; margin-top: 20px; font-size: 12px; color: #666; }
-            .warning { color: #d9534f; font-weight: bold; margin-top: 15px; }
-          </style>
-        </head>
-        <body>
-          <div class="container">
-            <div class="header">
-              <h1>🔐 Password Reset Request</h1>
-            </div>
-            <div class="content">
-              <h2>Reset Your Password</h2>
-              <p>Hello,</p>
-              <p>We received a request to reset your password for the IITK Election Commission Nomination Portal.</p>
-              <p>Use the OTP below to set a new password:</p>
-              <div class="otp-box">${otp}</div>
-              <p><strong>This OTP is valid for ${process.env.OTP_EXPIRE_MINUTES || 10} minutes.</strong></p>
-              <p class="warning">If you did not request a password reset, please ignore this email immediately. Your account remains secure.</p>
-              <div class="footer">
-                <p>© ${new Date().getFullYear()} IITK Election Commission. All rights reserved.</p>
-              </div>
-            </div>
-          </div>
-        </body>
-        </html>
-      `
-    };
-
-    const info = await transporter.sendMail(mailOptions);
-    console.log('✅ Password reset email sent:', info.messageId);
-    return { success: true, messageId: info.messageId };
+    const info = await transporter.sendMail({
+      from: `"IITK Election Portal" <${process.env.EMAIL_USER}>`,
+      to,
+      subject,
+      html
+    });
+    console.log(`📧 Email sent to ${to}: ${info.messageId}`);
+    return info;
   } catch (error) {
-    console.error('❌ Error sending password reset email:', error);
-    throw new Error('Failed to send password reset email');
+    console.error(`❌ Error sending email to ${to}:`, error);
+    throw new Error('Failed to send email');
   }
 };
 

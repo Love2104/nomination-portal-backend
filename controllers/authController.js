@@ -1,5 +1,5 @@
 import { User, OTP } from '../models/index.js';
-import { generateOTP, sendOTPEmail, sendPasswordResetEmail } from '../utils/emailService.js';
+import { generateOTP, sendOTPEmail } from '../utils/emailService.js';
 import { generateToken } from '../middleware/auth.js';
 
 // @desc    Register user - Send OTP
@@ -21,22 +21,26 @@ export const register = async (req, res) => {
 
         // Generate OTP
         const otp = generateOTP();
-        const expiresAt = new Date(Date.now() + (process.env.OTP_EXPIRE_MINUTES || 10) * 60 * 1000);
+        const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
-        // Save OTP to database
+        // Save OTP to database (Hashing handled by model hook)
+        // IMPORTANT: We save the RAW OTP here, the hook will hash it.
+        // Wait... standard practice is we save object with raw, hook hashes it.
+        // BUT we need to send the RAW OTP to user.
+
         await OTP.create({
             email,
-            otp,
+            otp, // Raw OTP passed here, hook hashes it before save
             expiresAt
         });
 
-        // Send OTP email
-        await sendOTPEmail(email, otp);
+        // Send RAW OTP email
+        await sendOTPEmail(email, otp, 'verification');
 
         res.status(200).json({
             success: true,
             message: 'OTP sent to your email. Please verify to complete registration.',
-            expiresIn: process.env.OTP_EXPIRE_MINUTES || 10
+            expiresIn: 10
         });
     } catch (error) {
         console.error('Register error:', error);
@@ -55,28 +59,30 @@ export const verifyOTP = async (req, res) => {
     try {
         const { email, otp, password, name, rollNo, department, phone } = req.body;
 
-        // Find OTP record
+        // Find latest OTP record for this email
         const otpRecord = await OTP.findOne({
-            where: { email, otp },
+            where: { email },
             order: [['createdAt', 'DESC']]
         });
 
         if (!otpRecord) {
             return res.status(400).json({
                 success: false,
-                message: 'Invalid OTP'
+                message: 'Invalid OTP request'
             });
         }
 
-        // Check if OTP is valid
-        if (!otpRecord.isValid()) {
+        // Verify OTP using model method (compares hash)
+        const isValid = await otpRecord.verifyOTP(otp);
+
+        if (!isValid) {
             return res.status(400).json({
                 success: false,
-                message: 'OTP has expired or already been used'
+                message: 'Invalid or expired OTP'
             });
         }
 
-        // Check if user already exists
+        // Check if user already exists (double check)
         const existingUser = await User.findOne({ where: { email } });
 
         if (existingUser) {
@@ -273,8 +279,6 @@ export const forgotPassword = async (req, res) => {
         const user = await User.findOne({ where: { email } });
 
         if (!user) {
-            // For security, do not reveal if email exists or not, but for UX we might need to.
-            // Let's return 404 for now to be helpful to the user (since it's an internal portal).
             return res.status(404).json({
                 success: false,
                 message: 'User with this email does not exist'
@@ -283,9 +287,9 @@ export const forgotPassword = async (req, res) => {
 
         // Generate OTP
         const otp = generateOTP();
-        const expiresAt = new Date(Date.now() + (process.env.OTP_EXPIRE_MINUTES || 10) * 60 * 1000);
+        const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
-        // Save OTP to database
+        // Save OTP to database (hashed by hook)
         await OTP.create({
             email,
             otp,
@@ -293,12 +297,12 @@ export const forgotPassword = async (req, res) => {
         });
 
         // Send OTP email
-        await sendPasswordResetEmail(email, otp);
+        await sendOTPEmail(email, otp, 'reset');
 
         res.status(200).json({
             success: true,
-            message: 'Password reset OTP sent to your emai.',
-            expiresIn: process.env.OTP_EXPIRE_MINUTES || 10
+            message: 'Password reset OTP sent to your email.',
+            expiresIn: 10
         });
     } catch (error) {
         console.error('Forgot password error:', error);
@@ -317,24 +321,26 @@ export const resetPassword = async (req, res) => {
     try {
         const { email, otp, newPassword } = req.body;
 
-        // Find OTP record
+        // Find latest OTP record
         const otpRecord = await OTP.findOne({
-            where: { email, otp },
+            where: { email },
             order: [['createdAt', 'DESC']]
         });
 
         if (!otpRecord) {
             return res.status(400).json({
                 success: false,
-                message: 'Invalid OTP'
+                message: 'Invalid OTP request'
             });
         }
 
-        // Check if OTP is valid
-        if (!otpRecord.isValid()) {
+        // Verify OTP (compare hash)
+        const isValid = await otpRecord.verifyOTP(otp);
+
+        if (!isValid) {
             return res.status(400).json({
                 success: false,
-                message: 'OTP has expired or already been used'
+                message: 'Invalid or expired OTP'
             });
         }
 
