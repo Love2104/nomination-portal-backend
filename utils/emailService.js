@@ -3,11 +3,11 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-// Create transporter - Optimized for Render
+// Create transporter - Optimized for Render (Try Port 465)
 const transporter = nodemailer.createTransport({
   host: 'smtp.gmail.com',
-  port: 587,
-  secure: false, // true for 465, false for other ports
+  port: 465,
+  secure: true, // Use SSL
   auth: {
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASSWORD
@@ -17,15 +17,17 @@ const transporter = nodemailer.createTransport({
     rejectUnauthorized: false
   },
   family: 4, // Force IPv4
-  connectionTimeout: 10000, // 10 seconds
+  connectionTimeout: 10000,
   greetingTimeout: 5000,
   socketTimeout: 10000
 });
 
-// Verify connection configuration
+// Verify connection configuration (Non-blocking)
 transporter.verify(function (error, success) {
   if (error) {
-    console.error('❌ Email Service Error:', error);
+    console.warn('⚠️ Email Service Warning: Could not connect to SMTP server on startup.');
+    console.warn('Error:', error.message);
+    // Do not exit process, just log warning
   } else {
     console.log('✅ Email Service Ready');
   }
