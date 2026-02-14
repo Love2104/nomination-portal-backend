@@ -3,23 +3,13 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-// Create transporter - configurable via env variables
+// Create transporter - simplified for Gmail
 const transporter = nodemailer.createTransport({
-  host: process.env.EMAIL_HOST || 'smtp.gmail.com',
-  port: parseInt(process.env.EMAIL_PORT || '587'),
-  secure: process.env.EMAIL_SECURE === 'true', // true for 465, false for other ports
+  service: 'gmail',
   auth: {
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASSWORD
-  },
-  tls: {
-    rejectUnauthorized: false
-  },
-  // Force IPv4 to avoid Docker/IPv6 timeouts
-  family: 4,
-  connectionTimeout: 60000,
-  greetingTimeout: 30000,
-  socketTimeout: 60000
+  }
 });
 
 // Verify transporter configuration
