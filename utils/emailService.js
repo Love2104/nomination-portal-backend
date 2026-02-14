@@ -3,9 +3,11 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-// Create transporter - using Gmail service preset for cloud hosting compatibility
+// Create transporter - configurable via env variables
 const transporter = nodemailer.createTransport({
-  service: 'gmail',
+  host: process.env.EMAIL_HOST || 'smtp.gmail.com',
+  port: parseInt(process.env.EMAIL_PORT || '587'),
+  secure: process.env.EMAIL_SECURE === 'true', // true for 465, false for other ports
   auth: {
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASSWORD
@@ -13,7 +15,9 @@ const transporter = nodemailer.createTransport({
   tls: {
     rejectUnauthorized: false
   },
-  connectionTimeout: 60000,  // 60 seconds for cold starts
+  // Force IPv4 to avoid Docker/IPv6 timeouts
+  family: 4,
+  connectionTimeout: 60000,
   greetingTimeout: 30000,
   socketTimeout: 60000
 });
@@ -37,7 +41,7 @@ export const generateOTP = () => {
 export const sendOTPEmail = async (email, otp) => {
   try {
     const mailOptions = {
-      from: `"IITK Election Commission" <${process.env.EMAIL_USER}>`,
+      from: process.env.EMAIL_FROM || `"IITK Election Commission" <${process.env.EMAIL_USER}>`,
       to: email,
       subject: 'Your OTP for IITK Election Portal Registration',
       html: `
@@ -90,7 +94,7 @@ export const sendOTPEmail = async (email, otp) => {
 export const sendPasswordResetEmail = async (email, otp) => {
   try {
     const mailOptions = {
-      from: `"IITK Election Commission" <${process.env.EMAIL_USER}>`,
+      from: process.env.EMAIL_FROM || `"IITK Election Commission" <${process.env.EMAIL_USER}>`,
       to: email,
       subject: 'Reset Your Password - IITK Election Portal',
       html: `

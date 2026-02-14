@@ -1,0 +1,12 @@
+Testing email configuration...
+----------------------------------------
+Host: smtp.gmail.com
+Port: 587
+Secure: false
+User: lovechourasia2021@gmail.com
+Password set: Yes (masked)
+----------------------------------------
+Attempting to send test email...
+✅ Email sent successfully!
+Message ID: <370e0382-9d32-783d-f9e2-60df756b6902@gmail.com>
+Response: 250 2.0.0 OK  1771077270 98e67ed59e1d1-3567eba9b2esm11746701a91.9 - gsmtp
