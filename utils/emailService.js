@@ -7,26 +7,29 @@ dotenv.config();
 // Nodemailer Gmail Transporter
 // ===============================
 const transporter = nodemailer.createTransport({
-  host: "smtp.gmail.com",
-  port: 587,
-  secure: false, // true for 465, false for other ports
+  service: "gmail", // ⭐ no manual SMTP config
   auth: {
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASSWORD,
   },
-  // Keep pool and timeouts to be safe, but port 587 is key
+
+  // ⭐ Render stability options
   pool: true,
   maxConnections: 1,
-  rateLimit: 5, // 5 emails/second max
+  maxMessages: Infinity,
+  rateLimit: 5,
+  connectionTimeout: 30000,
+  greetingTimeout: 30000,
+  socketTimeout: 30000,
 });
 
-// Optional debug (you can remove later)
+// Debug connection (remove later if you want)
 transporter.verify()
   .then(() => console.log("✅ Gmail transporter ready"))
   .catch(err => console.log("❌ Gmail connection failed:", err));
 
 // ===============================
-// Generate 6-digit OTP
+// Generate OTP
 // ===============================
 export const generateOTP = () => {
   return Math.floor(100000 + Math.random() * 900000).toString();
@@ -79,6 +82,6 @@ export const sendOTPEmail = async (to, otp, type = "verification") => {
     return info;
   } catch (error) {
     console.error(`❌ Error sending email to ${to}:`, error);
-    return null; // don't crash API
+    return null;
   }
 };
