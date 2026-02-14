@@ -3,14 +3,23 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-// Create transporter using Gmail service
-// Ensure EMAIL_USER and EMAIL_PASSWORD (App Password) are set in .env
+// Create transporter - Optimized for Render
 const transporter = nodemailer.createTransport({
-  service: 'gmail',
+  host: 'smtp.gmail.com',
+  port: 587,
+  secure: false, // true for 465, false for other ports
   auth: {
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASSWORD
-  }
+  },
+  // Important for Render/Docker environments
+  tls: {
+    rejectUnauthorized: false
+  },
+  family: 4, // Force IPv4
+  connectionTimeout: 10000, // 10 seconds
+  greetingTimeout: 5000,
+  socketTimeout: 10000
 });
 
 // Verify connection configuration
