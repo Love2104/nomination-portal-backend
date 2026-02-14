@@ -6,6 +6,9 @@ dotenv.config();
 // ===============================
 // Nodemailer Gmail Transporter
 // ===============================
+// ===============================
+// Nodemailer Gmail Transporter
+// ===============================
 const transporter = nodemailer.createTransport({
   host: "smtp.gmail.com",
   port: 587,
@@ -14,10 +17,14 @@ const transporter = nodemailer.createTransport({
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASSWORD,
   },
-  // Stability settings for cloud environments
-  pool: true,
-  maxConnections: 1,
-  rateLimit: 5,
+  // ⚡ FIX: Force IPv4 to avoid Render IPv6 timeout issues
+  family: 4,
+  tls: {
+    rejectUnauthorized: false,
+  },
+  // Debugging
+  logger: true,
+  debug: true,
 });
 
 // Debug connection (remove later if you want)
