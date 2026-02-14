@@ -22,7 +22,7 @@ app.use(cors({
         'http://localhost:5000',
         'https://nomination-portal-iitk.web.app',
         'https://nomination-portal-iitk.firebaseapp.com',
-        'https://nomination-portal-backend.onrender.com'
+        'https://nomination-portal-backend-wec7.onrender.com'
     ],
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
