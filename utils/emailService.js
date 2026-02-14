@@ -1,37 +1,10 @@
-import nodemailer from 'nodemailer';
+import { Resend } from 'resend';
 import dotenv from 'dotenv';
 
 dotenv.config();
 
-// Create transporter - Optimized for Render (Try Port 465)
-const transporter = nodemailer.createTransport({
-  host: 'smtp.gmail.com',
-  port: 465,
-  secure: true, // Use SSL
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASSWORD
-  },
-  // Important for Render/Docker environments
-  tls: {
-    rejectUnauthorized: false
-  },
-  family: 4, // Force IPv4
-  connectionTimeout: 10000,
-  greetingTimeout: 5000,
-  socketTimeout: 10000
-});
-
-// Verify connection configuration (Non-blocking)
-transporter.verify(function (error, success) {
-  if (error) {
-    console.warn('⚠️ Email Service Warning: Could not connect to SMTP server on startup.');
-    console.warn('Error:', error.message);
-    // Do not exit process, just log warning
-  } else {
-    console.log('✅ Email Service Ready');
-  }
-});
+// Initialize Resend with API Key
+const resend = new Resend(process.env.RESEND_API_KEY);
 
 /**
  * Generate a 6-digit numeric OTP
@@ -42,7 +15,7 @@ export const generateOTP = () => {
 };
 
 /**
- * Send OTP Email
+ * Send OTP Email using Resend
  * @param {string} to - Recipient email
  * @param {string} otp - The OTP code
  * @param {string} type - 'verification' or 'reset'
@@ -90,18 +63,23 @@ export const sendOTPEmail = async (to, otp, type = 'verification') => {
     `;
 
   try {
-    const info = await transporter.sendMail({
-      from: `"IITK Election Portal" <${process.env.EMAIL_USER}>`,
-      to,
-      subject,
-      html
+    const data = await resend.emails.send({
+      from: 'Nomination Portal <onboarding@resend.dev>', // Default Resend sender
+      to: [to],
+      subject: subject,
+      html: html
     });
-    console.log(`📧 Email sent to ${to}: ${info.messageId}`);
-    return info;
+
+    console.log(`📧 Resend Email sent to ${to}: ${data.id}`);
+    return data;
   } catch (error) {
-    console.error(`❌ Error sending email to ${to}:`, error);
-    throw new Error('Failed to send email');
+    console.error(`❌ Resend Error sending email to ${to}:`, error);
+    // Log extended error details if available
+    if (error.response) {
+      console.error(error.response.body);
+    }
+    throw new Error('Failed to send email via Resend');
   }
 };
 
-export default transporter;
+export default resend;
