@@ -1,0 +1,10 @@
+Signed URL: https://res.cloudinary.com/dzjiawtzf/raw/upload/s--AueZZqKd--/v1/iitk-election/manifestos/phase1/1771049662206_P4_184dba4f-c759-4570-9e05-4a754d3c73fe.pdf
+
+--- Testing SIGNED_HTTPS ---
+Status: 401
+Content-Type: application/pdf
+Content-Length: 0
+X-Cld-Error: deny or ACL failure
+Content-Disposition: inline
+First bytes: 
+Is PDF? false

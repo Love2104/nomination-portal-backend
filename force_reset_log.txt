@@ -1,0 +1,7 @@
+🚀 Force Reset Script Started
+Connecting to DB...
+✅ Connected
+🔑 Generated Hash: $2a$10$dWF.h4ydOx1xx4OdHFP63eMcE48yd89IbkjSN1GFHUNh/7UcnS/0m
+✅ User updated successfully!
+Row: {"id":"961e5d80-8886-4533-a413-188a1a26d6ad","email":"student1@iitk.ac.in","password":"$2a$10$dWF.h4ydOx1xx4OdHFP63eMcE48yd89IbkjSN1GFHUNh/7UcnS/0m","name":"Student One","rollNo":"100001","department":"CSE","phone":"9000000001","role":"student","isVerified":true,"createdAt":"2026-02-14T07:06:43.515Z","updatedAt":"2026-02-14T07:06:44.081Z"}
+🎉 DONE

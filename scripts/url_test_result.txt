@@ -1,0 +1,26 @@
+--- Testing ACTUAL_DB_URL ---
+URL: https://res.cloudinary.com/dzjiawtzf/raw/upload/v1771049653/iitk-election/manifestos/phase1/1771049662206_P4_184dba4f-c759-4570-9e05-4a754d3c73fe.pdf
+Status: 401
+Headers: {
+  "date": "Sat, 14 Feb 2026 06:20:07 GMT",
+  "content-type": "application/pdf",
+  "content-length": "0",
+  "connection": "keep-alive",
+  "server": "cloudflare",
+  "cf-ray": "9cda75325cc38997-DEL",
+  "accept-ranges": "bytes",
+  "access-control-allow-origin": "*",
+  "cache-control": "private, no-transform, max-age=0, no-cache",
+  "content-disposition": "inline",
+  "last-modified": "Sat, 14 Feb 2026 06:14:14 GMT",
+  "strict-transport-security": "max-age=604800",
+  "vary": "Accept-Encoding",
+  "pragma": "no-cache",
+  "access-control-expose-headers": "Content-Length,Content-Disposition,Server-Timing,X-Cld-Error,Vary",
+  "server-timing": "cld-cloudflare;dur=15;start=2026-02-14T06:20:07.422Z;desc=hit,rtt;dur=91",
+  "timing-allow-origin": "*",
+  "x-cld-error": "deny or ACL failure",
+  "x-request-id": "b66edb09919ea1905c5aed124467f7fd"
+}
+First bytes: 
+Is PDF? false
