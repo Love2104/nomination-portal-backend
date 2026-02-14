@@ -3,15 +3,19 @@ import dotenv from 'dotenv';
 
 dotenv.config();
 
-// Create transporter
+// Create transporter - using Gmail service preset for cloud hosting compatibility
 const transporter = nodemailer.createTransport({
-  host: process.env.EMAIL_HOST,
-  port: process.env.EMAIL_PORT,
-  secure: process.env.EMAIL_PORT == 465, // true for 465, false for other ports
+  service: 'gmail',
   auth: {
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASSWORD
-  }
+  },
+  tls: {
+    rejectUnauthorized: false
+  },
+  connectionTimeout: 60000,  // 60 seconds for cold starts
+  greetingTimeout: 30000,
+  socketTimeout: 60000
 });
 
 // Verify transporter configuration
