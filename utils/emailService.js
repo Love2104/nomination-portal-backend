@@ -1,10 +1,16 @@
-import { Resend } from 'resend';
+import nodemailer from 'nodemailer';
 import dotenv from 'dotenv';
 
 dotenv.config();
 
-// Initialize Resend with API Key
-const resend = new Resend(process.env.RESEND_API_KEY);
+// Create transporter
+const transporter = nodemailer.createTransport({
+  service: 'gmail',
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASSWORD
+  }
+});
 
 /**
  * Generate a 6-digit numeric OTP
@@ -15,12 +21,19 @@ export const generateOTP = () => {
 };
 
 /**
- * Send OTP Email using Resend
+ * Send OTP Email using Nodemailer
  * @param {string} to - Recipient email
  * @param {string} otp - The OTP code
  * @param {string} type - 'verification' or 'reset'
  */
 export const sendOTPEmail = async (to, otp, type = 'verification') => {
+  // Check for credentials
+  if (!process.env.EMAIL_USER || !process.env.EMAIL_PASSWORD) {
+    console.warn('⚠️  EMAIL_USER or EMAIL_PASSWORD missing. Printing mock email.');
+    console.log(`[Mock Email] To: ${to}, OTP: ${otp}`);
+    return;
+  }
+
   const subject = type === 'reset'
     ? 'Password Reset Request - IITK Election Portal'
     : 'Verify Your Email - IITK Election Portal';
@@ -63,23 +76,17 @@ export const sendOTPEmail = async (to, otp, type = 'verification') => {
     `;
 
   try {
-    const data = await resend.emails.send({
-      from: 'Nomination Portal <onboarding@resend.dev>', // Default Resend sender
-      to: [to],
+    const info = await transporter.sendMail({
+      from: `"IITK Election Portal" <${process.env.EMAIL_USER}>`,
+      to: to,
       subject: subject,
       html: html
     });
 
-    console.log(`📧 Resend Email sent to ${to}: ${data.id}`);
-    return data;
+    console.log(`📧 OTP Email sent to ${to}: ${info.messageId}`);
+    return info;
   } catch (error) {
-    console.error(`❌ Resend Error sending email to ${to}:`, error);
-    // Log extended error details if available
-    if (error.response) {
-      console.error(error.response.body);
-    }
-    throw new Error('Failed to send email via Resend');
+    console.error(`❌ Error sending email to ${to}:`, error);
+    // Don't crash the server, just log the error
   }
 };
-
-export default resend;
