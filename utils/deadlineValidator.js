@@ -1,64 +1,58 @@
-import { SystemConfig } from '../models/index.js';
+import prisma from '../prisma/client.js';
 
-// Get system configuration (create if doesn't exist)
+// Get system config (single-row model)
 export const getSystemConfig = async () => {
-    let config = await SystemConfig.findOne();
-
+    let config = await prisma.systemConfig.findFirst();
     if (!config) {
-        config = await SystemConfig.create({});
+        config = await prisma.systemConfig.create({ data: {} });
     }
-
     return config;
 };
 
 // Check if current time is within deadline
 const isWithinDeadline = (startDate, endDate) => {
     if (!startDate || !endDate) return false;
-
     const now = new Date();
-    const start = new Date(startDate);
-    const end = new Date(endDate);
-
-    return now >= start && now <= end;
+    return now >= new Date(startDate) && now <= new Date(endDate);
 };
 
-// Nomination deadline validator
+// Nomination deadline validator (same window as Proposer/Seconder)
 export const isNominationOpen = async () => {
     const config = await getSystemConfig();
-    return isWithinDeadline(config.nominationStartDate, config.nominationEndDate);
+    return isWithinDeadline(config.nominationStart, config.nominationEnd);
 };
 
-// Proposer/Seconder deadline validator
+// Proposer/Seconder deadline validator (same as nomination)
 export const isProposerSeconderOpen = async () => {
     const config = await getSystemConfig();
-    return isWithinDeadline(config.proposerSeconderStartDate, config.proposerSeconderEndDate);
+    return isWithinDeadline(config.nominationStart, config.nominationEnd);
 };
 
-// Campaigner deadline validator
+// Campaigner deadline validator (different window)
 export const isCampaignerOpen = async () => {
     const config = await getSystemConfig();
-    return isWithinDeadline(config.campaignerStartDate, config.campaignerEndDate);
+    return isWithinDeadline(config.campaignerStart, config.campaignerEnd);
 };
 
 // Manifesto Phase 1 deadline validator
 export const isManifestoPhase1Open = async () => {
     const config = await getSystemConfig();
-    return isWithinDeadline(config.manifestoPhase1StartDate, config.manifestoPhase1EndDate);
+    return isWithinDeadline(config.manifestoPhase1Start, config.manifestoPhase1End);
 };
 
 // Manifesto Phase 2 deadline validator
 export const isManifestoPhase2Open = async () => {
     const config = await getSystemConfig();
-    return isWithinDeadline(config.manifestoPhase2StartDate, config.manifestoPhase2EndDate);
+    return isWithinDeadline(config.manifestoPhase2Start, config.manifestoPhase2End);
 };
 
 // Final Manifesto deadline validator
 export const isManifestoFinalOpen = async () => {
     const config = await getSystemConfig();
-    return isWithinDeadline(config.manifestoFinalStartDate, config.manifestoFinalEndDate);
+    return isWithinDeadline(config.manifestoFinalStart, config.manifestoFinalEnd);
 };
 
-// Get phase deadline status
+// Get phase deadline status for frontend/checks
 export const getPhaseDeadlineStatus = async (phase) => {
     switch (phase) {
         case 'phase1':

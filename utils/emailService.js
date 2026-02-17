@@ -1,85 +1,42 @@
-import nodemailer from "nodemailer";
-import dotenv from "dotenv";
+import nodemailer from 'nodemailer';
+import dotenv from 'dotenv';
+import path from 'path';
 
 dotenv.config();
 
-// ===============================
-// Nodemailer Gmail Transporter
-// ===============================
 const transporter = nodemailer.createTransport({
-  host: "smtp.gmail.com",
+  host: 'smtp.gmail.com', // GSMTP only
   port: 465,
-  secure: true, // true for 465, false for other ports
+  secure: true, // Gmail SSL
   auth: {
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASSWORD,
   },
-  // ⚡ FIX: Force IPv4 to avoid Render IPv6 timeout issues
-  family: 4,
-  // Debugging
-  logger: true,
-  debug: true,
 });
 
-// Debug connection (remove later if you want)
-transporter.verify()
-  .then(() => console.log("✅ Gmail transporter ready"))
-  .catch(err => console.log("❌ Gmail connection failed:", err));
-
-// ===============================
-// Generate OTP
-// ===============================
-export const generateOTP = () => {
-  return Math.floor(100000 + Math.random() * 900000).toString();
-};
-
-// ===============================
-// Send OTP Email
-// ===============================
-export const sendOTPEmail = async (to, otp, type = "verification") => {
+export const sendOTPEmail = async (email, otp) => {
   try {
-    if (!process.env.EMAIL_USER || !process.env.EMAIL_PASSWORD) {
-      console.warn(`[Mock Email] To: ${to}, OTP: ${otp}`);
-      return;
-    }
+    const mailOptions = {
+      from: `"IITK Election Commission" <${process.env.EMAIL_USER}>`,
+      to: email,
+      subject: 'Your Election Portal OTP',
+      text: `Your OTP for the IITK Election Commission Portal is: ${otp}. It is valid for 10 minutes.`,
+      html: `
+        <div style="font-family: Arial, sans-serif; padding: 20px;">
+          <h2>IITK Election Portal Verification</h2>
+          <p>Your OTP is:</p>
+          <h1 style="color: #4CAF50; letter-spacing: 5px;">${otp}</h1>
+          <p>This OTP is valid for 10 minutes.</p>
+          <p>If you did not request this, please ignore this email.</p>
+        </div>
+      `,
+    };
 
-    const subject =
-      type === "reset"
-        ? "Password Reset – IITK Nomination Portal"
-        : "Email Verification – IITK Nomination Portal";
-
-    const title =
-      type === "reset" ? "Password Reset" : "Email Verification";
-
-    const message =
-      type === "reset"
-        ? "Use the OTP below to reset your password."
-        : "Use the OTP below to verify your email address.";
-
-    const html = `
-      <div style="font-family:Arial,Helvetica,sans-serif;padding:20px">
-        <h2>${title}</h2>
-        <p>${message}</p>
-        <h1 style="letter-spacing:6px;color:#1e3a8a">${otp}</h1>
-        <p>This OTP is valid for <strong>10 minutes</strong>.</p>
-        <hr/>
-        <p style="font-size:12px;color:#666">
-          © ${new Date().getFullYear()} IITK Election Commission
-        </p>
-      </div>
-    `;
-
-    const info = await transporter.sendMail({
-      from: `"IITK Nomination Portal" <${process.env.EMAIL_USER}>`,
-      to,
-      subject,
-      html,
-    });
-
-    console.log("✅ OTP Email sent:", info.messageId);
-    return info;
+    const info = await transporter.sendMail(mailOptions);
+    console.log(`Email sent: ${info.messageId}`);
+    return true;
   } catch (error) {
-    console.error(`❌ Error sending email to ${to}:`, error);
-    return null;
+    console.error('Error sending email:', error);
+    return false;
   }
 };

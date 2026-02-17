@@ -1,5 +1,6 @@
-import { SupporterRequest, Nomination, User, SystemConfig } from '../models/index.js';
+import prisma from '../prisma/client.js';
 import { isSupporterRoleOpen, getSystemConfig } from '../utils/deadlineValidator.js';
+import { logActivity } from '../services/activityService.js';
 
 // @desc    Request supporter role
 // @route   POST /api/supporters/request
@@ -18,7 +19,7 @@ export const requestSupporterRole = async (req, res) => {
         }
 
         // Find candidate's nomination
-        const nomination = await Nomination.findOne({
+        const nomination = await prisma.nomination.findUnique({
             where: { userId: candidateId }
         });
 
@@ -30,11 +31,13 @@ export const requestSupporterRole = async (req, res) => {
         }
 
         // Check if request already exists
-        const existingRequest = await SupporterRequest.findOne({
+        const existingRequest = await prisma.supporterRequest.findUnique({
             where: {
-                studentId: req.user.id,
-                nominationId: nomination.id,
-                role
+                studentId_nominationId_role: {
+                    studentId: req.user.id,
+                    nominationId: nomination.id,
+                    role
+                }
             }
         });
 
@@ -46,39 +49,40 @@ export const requestSupporterRole = async (req, res) => {
         }
 
         // Create supporter request
-        const supporterRequest = await SupporterRequest.create({
-            studentId: req.user.id,
-            candidateId,
-            nominationId: nomination.id,
-            role,
-            status: 'pending'
+        const supporterRequest = await prisma.supporterRequest.create({
+            data: {
+                studentId: req.user.id,
+                candidateId,
+                nominationId: nomination.id,
+                role,
+                status: 'PENDING'
+            },
+            include: {
+                student: {
+                    select: { id: true, name: true, email: true, rollNo: true, department: true }
+                },
+                candidate: {
+                    select: { id: true, name: true, email: true, rollNo: true, department: true }
+                }
+            }
         });
 
-        // Populate student and candidate info
-        const populatedRequest = await SupporterRequest.findByPk(supporterRequest.id, {
-            include: [
-                {
-                    model: User,
-                    as: 'student',
-                    attributes: ['id', 'name', 'email', 'rollNo', 'department']
-                },
-                {
-                    model: User,
-                    as: 'candidate',
-                    attributes: ['id', 'name', 'email', 'rollNo', 'department']
-                }
-            ]
+        await logActivity({
+            userId: req.user.id,
+            action: 'SUPPORTER_REQUEST_CREATED',
+            metadata: { supporterRequestId: supporterRequest.id, role }
         });
 
         res.status(201).json({
             success: true,
             message: 'Supporter request sent successfully',
-            request: populatedRequest
+            data: supporterRequest
         });
     } catch (error) {
         console.error('Request supporter role error:', error);
 
-        if (error.name === 'SequelizeUniqueConstraintError') {
+        // Handle unique constraint errors (Prisma P2002)
+        if (error.code === 'P2002') {
             return res.status(400).json({
                 success: false,
                 message: 'You have already requested this role for this candidate'
@@ -100,14 +104,10 @@ export const acceptSupporterRequest = async (req, res) => {
     try {
         const { id } = req.params;
 
-        // Find request
-        const request = await SupporterRequest.findByPk(id, {
-            include: [
-                {
-                    model: Nomination,
-                    required: true
-                }
-            ]
+        // Find request with nomination
+        const request = await prisma.supporterRequest.findUnique({
+            where: { id },
+            include: { nomination: true }
         });
 
         if (!request) {
@@ -126,42 +126,60 @@ export const acceptSupporterRequest = async (req, res) => {
         }
 
         // Check if already processed
-        if (request.status !== 'pending') {
+        if (request.status !== 'PENDING') {
             return res.status(400).json({
                 success: false,
-                message: `Request has already been ${request.status}`
+                message: `Request has already been ${request.status.toLowerCase()}`
             });
         }
 
         // Get system config for limits
         const config = await getSystemConfig();
-        const nomination = request.Nomination;
 
         // Check supporter limits
-        const roleCountField = `${request.role}Count`;
-        const maxRoleField = `max${request.role.charAt(0).toUpperCase() + request.role.slice(1)}s`;
+        const limitMap = {
+            proposer: config.maxProposers,
+            seconder: config.maxSeconders,
+            campaigner: config.maxCampaigners
+        };
 
-        if (nomination[roleCountField] >= config[maxRoleField]) {
+        // Count current accepted supporters for this role
+        const currentCount = await prisma.supporterRequest.count({
+            where: {
+                nominationId: request.nominationId,
+                role: request.role,
+                status: 'ACCEPTED'
+            }
+        });
+
+        if (currentCount >= limitMap[request.role]) {
             return res.status(400).json({
                 success: false,
-                message: `Maximum ${request.role} limit reached (${config[maxRoleField]})`
+                message: `Maximum ${request.role} limit reached (${limitMap[request.role]})`
             });
         }
 
         // Accept request
-        await request.update({ status: 'accepted' });
+        const updatedRequest = await prisma.supporterRequest.update({
+            where: { id },
+            data: { status: 'ACCEPTED' },
+            include: {
+                student: {
+                    select: { id: true, name: true, email: true, rollNo: true, department: true }
+                }
+            }
+        });
 
-        // Increment supporter count
-        await nomination.increment(roleCountField);
-
-        // Reload nomination
-        await nomination.reload();
+        await logActivity({
+            userId: req.user.id,
+            action: 'SUPPORTER_REQUEST_ACCEPTED',
+            metadata: { supporterRequestId: id, role: request.role }
+        });
 
         res.status(200).json({
             success: true,
             message: 'Supporter request accepted',
-            request,
-            nomination
+            data: updatedRequest
         });
     } catch (error) {
         console.error('Accept supporter request error:', error);
@@ -181,7 +199,9 @@ export const rejectSupporterRequest = async (req, res) => {
         const { id } = req.params;
 
         // Find request
-        const request = await SupporterRequest.findByPk(id);
+        const request = await prisma.supporterRequest.findUnique({
+            where: { id }
+        });
 
         if (!request) {
             return res.status(404).json({
@@ -199,20 +219,29 @@ export const rejectSupporterRequest = async (req, res) => {
         }
 
         // Check if already processed
-        if (request.status !== 'pending') {
+        if (request.status !== 'PENDING') {
             return res.status(400).json({
                 success: false,
-                message: `Request has already been ${request.status}`
+                message: `Request has already been ${request.status.toLowerCase()}`
             });
         }
 
         // Reject request
-        await request.update({ status: 'rejected' });
+        const updatedRequest = await prisma.supporterRequest.update({
+            where: { id },
+            data: { status: 'REJECTED' }
+        });
+
+        await logActivity({
+            userId: req.user.id,
+            action: 'SUPPORTER_REQUEST_REJECTED',
+            metadata: { supporterRequestId: id }
+        });
 
         res.status(200).json({
             success: true,
             message: 'Supporter request rejected',
-            request
+            data: updatedRequest
         });
     } catch (error) {
         console.error('Reject supporter request error:', error);
@@ -231,21 +260,21 @@ export const getCandidateSupporters = async (req, res) => {
     try {
         const { candidateId } = req.params;
 
-        const requests = await SupporterRequest.findAll({
+        const requests = await prisma.supporterRequest.findMany({
             where: { candidateId },
-            include: [
-                {
-                    model: User,
-                    as: 'student',
-                    attributes: ['id', 'name', 'email', 'rollNo', 'department']
+            include: {
+                student: {
+                    select: { id: true, name: true, email: true, rollNo: true, department: true }
                 }
-            ],
-            order: [['createdAt', 'DESC']]
+            },
+            orderBy: { createdAt: 'desc' }
         });
 
         res.status(200).json({
             success: true,
             count: requests.length,
+            data: requests,
+            // alias for existing frontend
             requests
         });
     } catch (error) {
@@ -263,28 +292,58 @@ export const getCandidateSupporters = async (req, res) => {
 // @access  Private
 export const getMyRequests = async (req, res) => {
     try {
-        const requests = await SupporterRequest.findAll({
+        const requests = await prisma.supporterRequest.findMany({
             where: { studentId: req.user.id },
-            include: [
-                {
-                    model: User,
-                    as: 'candidate',
-                    attributes: ['id', 'name', 'email', 'rollNo', 'department']
+            include: {
+                candidate: {
+                    select: { id: true, name: true, email: true, rollNo: true, department: true }
                 }
-            ],
-            order: [['createdAt', 'DESC']]
+            },
+            orderBy: { createdAt: 'desc' }
         });
 
         res.status(200).json({
             success: true,
             count: requests.length,
-            requests
+            data: requests
         });
     } catch (error) {
         console.error('Get my requests error:', error);
         res.status(500).json({
             success: false,
             message: 'Failed to get your requests',
+            error: error.message
+        });
+    }
+};
+
+// @desc    Generic supporter respond endpoint (accept/reject)
+// @route   PATCH /supporter/respond
+// @access  Private (Candidate only)
+export const respondSupporterRequest = async (req, res) => {
+    try {
+        const { supporterId, action } = req.body;
+
+        if (!supporterId || !['accept', 'reject'].includes(action)) {
+            return res.status(400).json({
+                success: false,
+                message: 'supporterId and valid action (accept/reject) are required'
+            });
+        }
+
+        // Reuse existing handlers by setting params.id
+        req.params = req.params || {};
+        req.params.id = supporterId;
+
+        if (action === 'accept') {
+            return acceptSupporterRequest(req, res);
+        }
+        return rejectSupporterRequest(req, res);
+    } catch (error) {
+        console.error('Respond supporter request error:', error);
+        return res.status(500).json({
+            success: false,
+            message: 'Failed to process supporter response',
             error: error.message
         });
     }

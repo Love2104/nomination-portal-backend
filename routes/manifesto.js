@@ -3,6 +3,7 @@ import {
     uploadManifesto,
     getManifesto,
     getNominationManifestos,
+    getCandidateManifestos,
     deleteManifesto,
     proxyManifestoPdf
 } from '../controllers/manifestoController.js';
@@ -13,7 +14,12 @@ import { validateUUID } from '../middleware/validation.js';
 const router = express.Router();
 
 // Public routes
-router.get('/view/:id', proxyManifestoPdf); // PDF proxy - must come before /:nominationId/:phase
+router.get('/view/:id', proxyManifestoPdf); // PDF proxy - must come before parameterized routes
+
+// New spec route: GET /manifesto/:candidateId
+router.get('/:candidateId', getCandidateManifestos);
+
+// Existing routes for backwards compatibility
 router.get('/:nominationId/:phase', getManifesto);
 router.get('/nomination/:nominationId', validateUUID, getNominationManifestos);
 

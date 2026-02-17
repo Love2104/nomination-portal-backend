@@ -71,9 +71,14 @@ export const validateLogin = [
 
 // Nomination validation
 export const validateNomination = [
-    body('positions')
-        .isArray({ min: 1 })
-        .withMessage('At least one position must be selected'),
+    body().custom((value, { req }) => {
+        const position = req.body.position;
+        const positions = req.body.positions;
+        if (!position && (!Array.isArray(positions) || positions.length === 0)) {
+            throw new Error('At least one position must be selected');
+        }
+        return true;
+    }),
     handleValidationErrors
 ];
 

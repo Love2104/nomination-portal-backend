@@ -34,6 +34,9 @@ router.get('/comments/:manifestoId', getManifestoComments);
 
 // Protected routes (Reviewer only)
 router.get('/manifestos', verifyReviewer, getManifestosForReview);
+// New spec route alias: POST /reviewer/comment
+router.post('/comment', verifyReviewer, validateComment, addComment);
+// Backwards-compatible plural route
 router.post('/comments', verifyReviewer, validateComment, addComment);
 
 export default router;

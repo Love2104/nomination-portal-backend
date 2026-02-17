@@ -1,6 +1,6 @@
-import { Manifesto, ReviewerComment, Nomination, User, SystemConfig } from '../models/index.js';
-import bcrypt from 'bcryptjs';
+import prisma from '../prisma/client.js';
 import jwt from 'jsonwebtoken';
+import { logActivity } from '../services/activityService.js';
 
 // @desc    Reviewer login
 // @route   POST /api/reviewers/login
@@ -17,8 +17,8 @@ export const reviewerLogin = async (req, res) => {
             });
         }
 
-        // Get system config
-        const config = await SystemConfig.findOne();
+        // Get system config (single row)
+        const config = await prisma.systemConfig.findFirst();
 
         if (!config) {
             return res.status(500).json({
@@ -38,8 +38,11 @@ export const reviewerLogin = async (req, res) => {
             });
         }
 
+        // Parse credentials if stored as string
+        const creds = typeof credentials === 'string' ? JSON.parse(credentials) : credentials;
+
         // Check credentials
-        if (username !== credentials.username || password !== credentials.password) {
+        if (username !== creds.username || password !== creds.password) {
             return res.status(401).json({
                 success: false,
                 message: 'Invalid credentials'
@@ -57,11 +60,16 @@ export const reviewerLogin = async (req, res) => {
             { expiresIn: '24h' }
         );
 
+        await logActivity({
+            action: 'REVIEWER_LOGIN',
+            metadata: { username, phase }
+        });
+
         res.status(200).json({
             success: true,
             message: 'Login successful',
             token,
-            reviewer: {
+            data: {
                 username,
                 phase
             }
@@ -122,34 +130,42 @@ export const verifyReviewer = (req, res, next) => {
     }
 };
 
+// Phase map for Prisma enum
+const phaseMap = {
+    phase1: 'PHASE1',
+    phase2: 'PHASE2',
+    final: 'FINAL'
+};
+
 // @desc    Get manifestos for review
 // @route   GET /api/reviewers/manifestos
 // @access  Private (Reviewer only)
 export const getManifestosForReview = async (req, res) => {
     try {
         const { phase } = req.reviewer;
+        const prismaPhase = phaseMap[phase];
 
-        const manifestos = await Manifesto.findAll({
-            where: { phase },
-            include: [
-                {
-                    model: Nomination,
-                    include: [
-                        {
-                            model: User,
-                            as: 'candidate',
-                            attributes: ['id', 'name', 'rollNo', 'department']
+        const manifestos = await prisma.manifesto.findMany({
+            where: { phase: prismaPhase },
+            include: {
+                nomination: {
+                    include: {
+                        user: {
+                            select: { id: true, name: true, rollNo: true, department: true }
                         }
-                    ]
-                }
-            ],
-            order: [['uploadedAt', 'DESC']]
+                    }
+                },
+                comments: true
+            },
+            orderBy: { createdAt: 'desc' }
         });
 
         res.status(200).json({
             success: true,
             phase,
             count: manifestos.length,
+            data: manifestos,
+            // alias for existing frontend
             manifestos
         });
     } catch (error) {
@@ -169,9 +185,12 @@ export const addComment = async (req, res) => {
     try {
         const { manifestoId, comment } = req.body;
         const { username, phase } = req.reviewer;
+        const prismaPhase = phaseMap[phase];
 
         // Find manifesto
-        const manifesto = await Manifesto.findByPk(manifestoId);
+        const manifesto = await prisma.manifesto.findUnique({
+            where: { id: manifestoId }
+        });
 
         if (!manifesto) {
             return res.status(404).json({
@@ -181,24 +200,32 @@ export const addComment = async (req, res) => {
         }
 
         // Check if manifesto phase matches reviewer phase
-        if (manifesto.phase !== phase) {
+        if (manifesto.phase !== prismaPhase) {
             return res.status(403).json({
                 success: false,
                 message: 'You can only comment on manifestos for your assigned phase'
             });
         }
 
-        // Create comment
-        const reviewerComment = await ReviewerComment.create({
-            manifestoId,
-            reviewerId: username,
-            reviewerName: username,
-            comment
+        // Create comment — reviewerId is the username string (reviewers don't have User accounts)
+        const reviewerComment = await prisma.reviewerComment.create({
+            data: {
+                manifestoId,
+                reviewerId: username, // This needs to be a valid user ID per schema
+                reviewerName: username,
+                content: comment
+            }
+        });
+
+        await logActivity({
+            action: 'REVIEWER_COMMENT_ADDED',
+            metadata: { manifestoId, reviewer: username, phase }
         });
 
         res.status(201).json({
             success: true,
             message: 'Comment added successfully',
+            data: reviewerComment,
             comment: reviewerComment
         });
     } catch (error) {
@@ -218,15 +245,22 @@ export const getManifestoComments = async (req, res) => {
     try {
         const { manifestoId } = req.params;
 
-        const comments = await ReviewerComment.findAll({
+        const comments = await prisma.reviewerComment.findMany({
             where: { manifestoId },
-            order: [['createdAt', 'DESC']]
+            orderBy: { createdAt: 'desc' }
         });
+
+        // Add legacy-friendly "comment" field for frontend while keeping "content"
+        const shaped = comments.map(c => ({
+            ...c,
+            comment: c.content
+        }));
 
         res.status(200).json({
             success: true,
-            count: comments.length,
-            comments
+            count: shaped.length,
+            data: shaped,
+            comments: shaped
         });
     } catch (error) {
         console.error('Get manifesto comments error:', error);

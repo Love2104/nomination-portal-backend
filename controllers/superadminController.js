@@ -1,15 +1,16 @@
-import { SystemConfig, User, Nomination, SupporterRequest, Manifesto, ReviewerComment } from '../models/index.js';
+import prisma from '../prisma/client.js';
 import { Parser } from 'json2csv';
+import { logActivity } from '../services/activityService.js';
 
 // @desc    Get system configuration
 // @route   GET /api/superadmin/config
 // @access  Private (Superadmin only)
 export const getConfig = async (req, res) => {
     try {
-        let config = await SystemConfig.findOne();
+        let config = await prisma.systemConfig.findFirst();
 
         if (!config) {
-            config = await SystemConfig.create({});
+            config = await prisma.systemConfig.create({ data: {} });
         }
 
         res.status(200).json({
@@ -31,15 +32,67 @@ export const getConfig = async (req, res) => {
 // @access  Private (Superadmin only)
 export const updateDeadlines = async (req, res) => {
     try {
-        const deadlines = req.body;
+        const body = req.body;
 
-        let config = await SystemConfig.findOne();
+        // Only pick valid deadline fields and convert to Date objects
+        const deadlineFields = [
+            'nominationStart', 'nominationEnd',
+            'campaignerStart', 'campaignerEnd',
+            'manifestoPhase1Start', 'manifestoPhase1End',
+            'manifestoPhase2Start', 'manifestoPhase2End',
+            'manifestoFinalStart', 'manifestoFinalEnd'
+        ];
 
-        if (!config) {
-            config = await SystemConfig.create({});
+        // Accept legacy frontend field names (e.g. nominationStartDate) as aliases
+        const aliases = {
+            nominationStart: ['nominationStartDate'],
+            nominationEnd: ['nominationEndDate'],
+            campaignerStart: ['campaignerStartDate'],
+            campaignerEnd: ['campaignerEndDate'],
+            manifestoPhase1Start: ['manifestoPhase1StartDate'],
+            manifestoPhase1End: ['manifestoPhase1EndDate'],
+            manifestoPhase2Start: ['manifestoPhase2StartDate'],
+            manifestoPhase2End: ['manifestoPhase2EndDate'],
+            manifestoFinalStart: ['manifestoFinalStartDate'],
+            manifestoFinalEnd: ['manifestoFinalEndDate']
+        };
+
+        const data = {};
+        for (const field of deadlineFields) {
+            let raw = body[field];
+
+            if ((raw === undefined || raw === null || raw === '') && aliases[field]) {
+                for (const alias of aliases[field]) {
+                    if (body[alias]) {
+                        raw = body[alias];
+                        break;
+                    }
+                }
+            }
+
+            if (raw !== undefined && raw !== null && raw !== '') {
+                data[field] = new Date(raw);
+            } else if (raw === '' || raw === null) {
+                data[field] = null; // allow clearing deadlines
+            }
         }
 
-        await config.update(deadlines);
+        let config = await prisma.systemConfig.findFirst();
+
+        if (!config) {
+            config = await prisma.systemConfig.create({ data });
+        } else {
+            config = await prisma.systemConfig.update({
+                where: { id: config.id },
+                data
+            });
+        }
+
+        await logActivity({
+            userId: req.user.id,
+            action: 'SYSTEM_DEADLINES_UPDATED',
+            metadata: data
+        });
 
         res.status(200).json({
             success: true,
@@ -56,6 +109,98 @@ export const updateDeadlines = async (req, res) => {
     }
 };
 
+// @desc    Unified config update (deadlines + limits + reviewer credentials)
+// @route   PATCH /superadmin/config
+// @access  Private (Superadmin only)
+export const updateConfig = async (req, res) => {
+    try {
+        const body = req.body;
+
+        const dateFields = [
+            'nominationStart', 'nominationEnd',
+            'campaignerStart', 'campaignerEnd',
+            'manifestoPhase1Start', 'manifestoPhase1End',
+            'manifestoPhase2Start', 'manifestoPhase2End',
+            'manifestoFinalStart', 'manifestoFinalEnd'
+        ];
+
+        const aliasMap = {
+            nominationStart: ['nominationStartDate'],
+            nominationEnd: ['nominationEndDate'],
+            campaignerStart: ['campaignerStartDate'],
+            campaignerEnd: ['campaignerEndDate'],
+            manifestoPhase1Start: ['manifestoPhase1StartDate'],
+            manifestoPhase1End: ['manifestoPhase1EndDate'],
+            manifestoPhase2Start: ['manifestoPhase2StartDate'],
+            manifestoPhase2End: ['manifestoPhase2EndDate'],
+            manifestoFinalStart: ['manifestoFinalStartDate'],
+            manifestoFinalEnd: ['manifestoFinalEndDate']
+        };
+
+        const data = {};
+
+        // Dates
+        for (const field of dateFields) {
+            let raw = body[field];
+
+            if ((raw === undefined || raw === null || raw === '') && aliasMap[field]) {
+                for (const alias of aliasMap[field]) {
+                    if (body[alias]) {
+                        raw = body[alias];
+                        break;
+                    }
+                }
+            }
+
+            if (raw !== undefined && raw !== null && raw !== '') {
+                data[field] = new Date(raw);
+            } else if (raw === '' || raw === null) {
+                data[field] = null;
+            }
+        }
+
+        // Limits
+        if (body.maxProposers !== undefined) data.maxProposers = body.maxProposers;
+        if (body.maxSeconders !== undefined) data.maxSeconders = body.maxSeconders;
+        if (body.maxCampaigners !== undefined) data.maxCampaigners = body.maxCampaigners;
+
+        // Reviewer credentials
+        if (body.phase1ReviewerCredentials) data.phase1ReviewerCredentials = body.phase1ReviewerCredentials;
+        if (body.phase2ReviewerCredentials) data.phase2ReviewerCredentials = body.phase2ReviewerCredentials;
+        if (body.finalReviewerCredentials) data.finalReviewerCredentials = body.finalReviewerCredentials;
+
+        let config = await prisma.systemConfig.findFirst();
+
+        if (!config) {
+            config = await prisma.systemConfig.create({ data });
+        } else {
+            config = await prisma.systemConfig.update({
+                where: { id: config.id },
+                data
+            });
+        }
+
+        await logActivity({
+            userId: req.user.id,
+            action: 'SYSTEM_CONFIG_UPDATED',
+            metadata: data
+        });
+
+        return res.status(200).json({
+            success: true,
+            message: 'System configuration updated successfully',
+            config
+        });
+    } catch (error) {
+        console.error('Update config error:', error);
+        return res.status(500).json({
+            success: false,
+            message: 'Failed to update configuration',
+            error: error.message
+        });
+    }
+};
+
 // @desc    Update supporter limits
 // @route   PUT /api/superadmin/config/limits
 // @access  Private (Superadmin only)
@@ -63,16 +208,26 @@ export const updateLimits = async (req, res) => {
     try {
         const { maxProposers, maxSeconders, maxCampaigners } = req.body;
 
-        let config = await SystemConfig.findOne();
+        let config = await prisma.systemConfig.findFirst();
+
+        const data = {};
+        if (maxProposers !== undefined) data.maxProposers = maxProposers;
+        if (maxSeconders !== undefined) data.maxSeconders = maxSeconders;
+        if (maxCampaigners !== undefined) data.maxCampaigners = maxCampaigners;
 
         if (!config) {
-            config = await SystemConfig.create({});
+            config = await prisma.systemConfig.create({ data });
+        } else {
+            config = await prisma.systemConfig.update({
+                where: { id: config.id },
+                data
+            });
         }
 
-        await config.update({
-            ...(maxProposers !== undefined && { maxProposers }),
-            ...(maxSeconders !== undefined && { maxSeconders }),
-            ...(maxCampaigners !== undefined && { maxCampaigners })
+        await logActivity({
+            userId: req.user.id,
+            action: 'SYSTEM_LIMITS_UPDATED',
+            metadata: data
         });
 
         res.status(200).json({
@@ -95,20 +250,29 @@ export const updateLimits = async (req, res) => {
 // @access  Private (Superadmin only)
 export const updateReviewerCredentials = async (req, res) => {
     try {
-        const { phase1, phase2, final } = req.body;
+        const { phase1, phase2, final: finalCreds } = req.body;
 
-        let config = await SystemConfig.findOne();
+        let config = await prisma.systemConfig.findFirst();
+
+        const data = {};
+        if (phase1) data.phase1ReviewerCredentials = phase1;
+        if (phase2) data.phase2ReviewerCredentials = phase2;
+        if (finalCreds) data.finalReviewerCredentials = finalCreds;
 
         if (!config) {
-            config = await SystemConfig.create({});
+            config = await prisma.systemConfig.create({ data });
+        } else {
+            config = await prisma.systemConfig.update({
+                where: { id: config.id },
+                data
+            });
         }
 
-        const updates = {};
-        if (phase1) updates.phase1ReviewerCredentials = phase1;
-        if (phase2) updates.phase2ReviewerCredentials = phase2;
-        if (final) updates.finalReviewerCredentials = final;
-
-        await config.update(updates);
+        await logActivity({
+            userId: req.user.id,
+            action: 'REVIEWER_CREDENTIALS_UPDATED',
+            metadata: data
+        });
 
         res.status(200).json({
             success: true,
@@ -127,34 +291,33 @@ export const updateReviewerCredentials = async (req, res) => {
 
 // @desc    Get all candidates with statistics
 // @route   GET /api/superadmin/candidates
-// @access  Private (Superadmin only)
+// @access  Private (Superadmin/Admin only)
 export const getAllCandidates = async (req, res) => {
     try {
-        const candidates = await User.findAll({
-            where: { role: 'candidate' },
-            attributes: ['id', 'name', 'email', 'rollNo', 'department', 'createdAt'],
-            include: [
-                {
-                    model: Nomination,
-                    include: [
-                        {
-                            model: SupporterRequest,
-                            separate: true
-                        },
-                        {
-                            model: Manifesto,
-                            separate: true
-                        }
-                    ]
+        const candidates = await prisma.user.findMany({
+            where: { role: 'CANDIDATE' },
+            select: {
+                id: true,
+                name: true,
+                email: true,
+                rollNo: true,
+                department: true,
+                profilePic: true,
+                createdAt: true,
+                nomination: {
+                    include: {
+                        supporterRequests: true,
+                        manifestos: true
+                    }
                 }
-            ],
-            order: [['createdAt', 'DESC']]
+            },
+            orderBy: { createdAt: 'desc' }
         });
 
         res.status(200).json({
             success: true,
             count: candidates.length,
-            candidates
+            data: candidates
         });
     } catch (error) {
         console.error('Get all candidates error:', error);
@@ -171,62 +334,75 @@ export const getAllCandidates = async (req, res) => {
 // @access  Private (Superadmin only)
 export const getStatistics = async (req, res) => {
     try {
-        const totalUsers = await User.count();
-        const totalCandidates = await User.count({ where: { role: 'candidate' } });
-        const totalNominations = await Nomination.count();
-        const submittedNominations = await Nomination.count({ where: { status: 'submitted' } });
-        const totalSupporterRequests = await SupporterRequest.count();
-        const acceptedSupporters = await SupporterRequest.count({ where: { status: 'accepted' } });
-        const totalManifestos = await Manifesto.count();
-        const totalComments = await ReviewerComment.count();
+        const [
+            totalUsers,
+            totalCandidates,
+            totalNominations,
+            pendingNominations,
+            acceptedNominations,
+            totalSupporterRequests,
+            acceptedSupporters,
+            proposerCount,
+            seconderCount,
+            campaignerCount,
+            totalManifestos,
+            phase1Manifestos,
+            phase2Manifestos,
+            finalManifestos,
+            totalComments
+        ] = await Promise.all([
+            prisma.user.count(),
+            prisma.user.count({ where: { role: 'CANDIDATE' } }),
+            prisma.nomination.count(),
+            prisma.nomination.count({ where: { status: 'PENDING' } }),
+            prisma.nomination.count({ where: { status: 'ACCEPTED' } }),
+            prisma.supporterRequest.count(),
+            prisma.supporterRequest.count({ where: { status: 'ACCEPTED' } }),
+            prisma.supporterRequest.count({ where: { role: 'proposer', status: 'ACCEPTED' } }),
+            prisma.supporterRequest.count({ where: { role: 'seconder', status: 'ACCEPTED' } }),
+            prisma.supporterRequest.count({ where: { role: 'campaigner', status: 'ACCEPTED' } }),
+            prisma.manifesto.count(),
+            prisma.manifesto.count({ where: { phase: 'PHASE1' } }),
+            prisma.manifesto.count({ where: { phase: 'PHASE2' } }),
+            prisma.manifesto.count({ where: { phase: 'FINAL' } }),
+            prisma.reviewerComment.count()
+        ]);
 
-        // Get supporter breakdown
-        const proposerCount = await SupporterRequest.count({
-            where: { role: 'proposer', status: 'accepted' }
-        });
-        const seconderCount = await SupporterRequest.count({
-            where: { role: 'seconder', status: 'accepted' }
-        });
-        const campaignerCount = await SupporterRequest.count({
-            where: { role: 'campaigner', status: 'accepted' }
-        });
-
-        // Get manifesto breakdown
-        const phase1Manifestos = await Manifesto.count({ where: { phase: 'phase1' } });
-        const phase2Manifestos = await Manifesto.count({ where: { phase: 'phase2' } });
-        const finalManifestos = await Manifesto.count({ where: { phase: 'final' } });
+        const statistics = {
+            users: {
+                total: totalUsers,
+                candidates: totalCandidates,
+                students: totalUsers - totalCandidates
+            },
+            nominations: {
+                total: totalNominations,
+                pending: pendingNominations,
+                accepted: acceptedNominations
+            },
+            supporters: {
+                total: totalSupporterRequests,
+                accepted: acceptedSupporters,
+                pending: totalSupporterRequests - acceptedSupporters,
+                breakdown: {
+                    proposers: proposerCount,
+                    seconders: seconderCount,
+                    campaigners: campaignerCount
+                }
+            },
+            manifestos: {
+                total: totalManifestos,
+                phase1: phase1Manifestos,
+                phase2: phase2Manifestos,
+                final: finalManifestos
+            },
+            comments: totalComments
+        };
 
         res.status(200).json({
             success: true,
-            statistics: {
-                users: {
-                    total: totalUsers,
-                    candidates: totalCandidates,
-                    students: totalUsers - totalCandidates
-                },
-                nominations: {
-                    total: totalNominations,
-                    submitted: submittedNominations,
-                    draft: totalNominations - submittedNominations
-                },
-                supporters: {
-                    total: totalSupporterRequests,
-                    accepted: acceptedSupporters,
-                    pending: totalSupporterRequests - acceptedSupporters,
-                    breakdown: {
-                        proposers: proposerCount,
-                        seconders: seconderCount,
-                        campaigners: campaignerCount
-                    }
-                },
-                manifestos: {
-                    total: totalManifestos,
-                    phase1: phase1Manifestos,
-                    phase2: phase2Manifestos,
-                    final: finalManifestos
-                },
-                comments: totalComments
-            }
+            data: statistics,
+            // alias for existing frontend
+            statistics
         });
     } catch (error) {
         console.error('Get statistics error:', error);
@@ -238,7 +414,7 @@ export const getStatistics = async (req, res) => {
     }
 };
 
-// @desc    Export data
+// @desc    Export data as CSV
 // @route   GET /api/superadmin/export/:type
 // @access  Private (Superadmin only)
 export const exportData = async (req, res) => {
@@ -248,49 +424,48 @@ export const exportData = async (req, res) => {
         let fields = [];
 
         switch (type) {
-            case 'candidates':
-                const candidates = await User.findAll({
-                    where: { role: 'candidate' },
-                    attributes: ['name', 'email', 'rollNo', 'department', 'phone', 'createdAt'],
-                    include: [
-                        {
-                            model: Nomination,
-                            attributes: ['positions', 'status', 'proposerCount', 'seconderCount', 'campaignerCount']
+            case 'candidates': {
+                const candidates = await prisma.user.findMany({
+                    where: { role: 'CANDIDATE' },
+                    select: {
+                        name: true, email: true, rollNo: true, department: true, contact: true, createdAt: true,
+                        nomination: {
+                            select: {
+                                position: true, cpi: true, status: true,
+                                supporterRequests: { where: { status: 'ACCEPTED' } }
+                            }
                         }
-                    ]
+                    }
                 });
 
-                data = candidates.map(c => ({
-                    name: c.name,
-                    email: c.email,
-                    rollNo: c.rollNo,
-                    department: c.department,
-                    phone: c.phone,
-                    positions: c.Nomination?.positions?.join(', ') || '',
-                    status: c.Nomination?.status || 'No nomination',
-                    proposers: c.Nomination?.proposerCount || 0,
-                    seconders: c.Nomination?.seconderCount || 0,
-                    campaigners: c.Nomination?.campaignerCount || 0,
-                    registeredAt: c.createdAt
-                }));
+                data = candidates.map(c => {
+                    const acceptedByRole = (r) => c.nomination?.supporterRequests?.filter(s => s.role === r).length || 0;
+                    return {
+                        name: c.name,
+                        email: c.email,
+                        rollNo: c.rollNo,
+                        department: c.department,
+                        phone: c.contact || '',
+                        position: c.nomination?.position || '',
+                        cpi: c.nomination?.cpi || '',
+                        status: c.nomination?.status || 'No nomination',
+                        proposers: acceptedByRole('proposer'),
+                        seconders: acceptedByRole('seconder'),
+                        campaigners: acceptedByRole('campaigner'),
+                        registeredAt: c.createdAt
+                    };
+                });
 
-                fields = ['name', 'email', 'rollNo', 'department', 'phone', 'positions', 'status', 'proposers', 'seconders', 'campaigners', 'registeredAt'];
+                fields = ['name', 'email', 'rollNo', 'department', 'phone', 'position', 'cpi', 'status', 'proposers', 'seconders', 'campaigners', 'registeredAt'];
                 break;
+            }
 
-            case 'supporters':
-                const supporters = await SupporterRequest.findAll({
-                    include: [
-                        {
-                            model: User,
-                            as: 'student',
-                            attributes: ['name', 'email', 'rollNo', 'department']
-                        },
-                        {
-                            model: User,
-                            as: 'candidate',
-                            attributes: ['name', 'email', 'rollNo']
-                        }
-                    ]
+            case 'supporters': {
+                const supporters = await prisma.supporterRequest.findMany({
+                    include: {
+                        student: { select: { name: true, email: true, rollNo: true, department: true } },
+                        candidate: { select: { name: true, email: true, rollNo: true } }
+                    }
                 });
 
                 data = supporters.map(s => ({
@@ -307,69 +482,60 @@ export const exportData = async (req, res) => {
 
                 fields = ['studentName', 'studentEmail', 'studentRollNo', 'studentDepartment', 'candidateName', 'candidateRollNo', 'role', 'status', 'requestedAt'];
                 break;
+            }
 
-            case 'manifestos':
-                const manifestos = await Manifesto.findAll({
-                    include: [
-                        {
-                            model: Nomination,
-                            include: [
-                                {
-                                    model: User,
-                                    as: 'candidate',
-                                    attributes: ['name', 'email', 'rollNo']
-                                }
-                            ]
+            case 'manifestos': {
+                const manifestos = await prisma.manifesto.findMany({
+                    include: {
+                        nomination: {
+                            include: {
+                                user: { select: { name: true, email: true, rollNo: true } }
+                            }
                         }
-                    ]
+                    }
                 });
 
                 data = manifestos.map(m => ({
-                    candidateName: m.Nomination.candidate.name,
-                    candidateRollNo: m.Nomination.candidate.rollNo,
+                    candidateName: m.nomination.user.name,
+                    candidateRollNo: m.nomination.user.rollNo,
                     phase: m.phase,
                     fileName: m.fileName,
                     fileUrl: m.fileUrl,
                     status: m.status,
-                    uploadedAt: m.uploadedAt
+                    uploadedAt: m.createdAt
                 }));
 
                 fields = ['candidateName', 'candidateRollNo', 'phase', 'fileName', 'fileUrl', 'status', 'uploadedAt'];
                 break;
+            }
 
-            case 'comments':
-                const comments = await ReviewerComment.findAll({
-                    include: [
-                        {
-                            model: Manifesto,
-                            include: [
-                                {
-                                    model: Nomination,
-                                    include: [
-                                        {
-                                            model: User,
-                                            as: 'candidate',
-                                            attributes: ['name', 'rollNo']
-                                        }
-                                    ]
+            case 'comments': {
+                const comments = await prisma.reviewerComment.findMany({
+                    include: {
+                        manifesto: {
+                            include: {
+                                nomination: {
+                                    include: {
+                                        user: { select: { name: true, rollNo: true } }
+                                    }
                                 }
-                            ]
+                            }
                         }
-                    ]
+                    }
                 });
 
                 data = comments.map(c => ({
-                    candidateName: c.Manifesto.Nomination.candidate.name,
-                    candidateRollNo: c.Manifesto.Nomination.candidate.rollNo,
-                    phase: c.Manifesto.phase,
-                    reviewerId: c.reviewerId,
+                    candidateName: c.manifesto.nomination.user.name,
+                    candidateRollNo: c.manifesto.nomination.user.rollNo,
+                    phase: c.manifesto.phase,
                     reviewerName: c.reviewerName,
-                    comment: c.comment,
+                    comment: c.content,
                     commentedAt: c.createdAt
                 }));
 
-                fields = ['candidateName', 'candidateRollNo', 'phase', 'reviewerId', 'reviewerName', 'comment', 'commentedAt'];
+                fields = ['candidateName', 'candidateRollNo', 'phase', 'reviewerName', 'comment', 'commentedAt'];
                 break;
+            }
 
             default:
                 return res.status(400).json({
@@ -382,7 +548,6 @@ export const exportData = async (req, res) => {
         const parser = new Parser({ fields });
         const csv = parser.parse(data);
 
-        // Set headers for download
         res.setHeader('Content-Type', 'text/csv');
         res.setHeader('Content-Disposition', `attachment; filename=${type}_export_${Date.now()}.csv`);
 
@@ -396,23 +561,19 @@ export const exportData = async (req, res) => {
         });
     }
 };
+
 // @desc    Get all submitted nominations
 // @route   GET /api/superadmin/nominations
-// @access  Private (Superadmin only)
+// @access  Private (Superadmin/Admin only)
 export const getSubmittedNominations = async (req, res) => {
     try {
-        const nominations = await Nomination.findAll({
-            where: {
-                status: ['submitted', 'verified', 'rejected']
-            },
-            include: [
-                {
-                    model: User,
-                    as: 'candidate',
-                    attributes: ['name', 'email', 'rollNo', 'department']
+        const nominations = await prisma.nomination.findMany({
+            include: {
+                user: {
+                    select: { id: true, name: true, email: true, rollNo: true, department: true, profilePic: true }
                 }
-            ],
-            order: [['updatedAt', 'DESC']]
+            },
+            orderBy: { updatedAt: 'desc' }
         });
 
         res.status(200).json({
@@ -430,22 +591,24 @@ export const getSubmittedNominations = async (req, res) => {
     }
 };
 
-// @desc    Verify nomination
+// @desc    Accept or reject nomination
 // @route   PUT /api/superadmin/nominations/:id/verify
-// @access  Private (Superadmin only)
+// @access  Private (Superadmin/Admin only)
 export const verifyNomination = async (req, res) => {
     try {
         const { id } = req.params;
-        const { status } = req.body; // 'verified' or 'rejected'
+        const { status } = req.body; // 'ACCEPTED' or 'REJECTED'
 
-        if (!['verified', 'rejected'].includes(status)) {
+        if (!['ACCEPTED', 'REJECTED'].includes(status)) {
             return res.status(400).json({
                 success: false,
-                message: 'Invalid status. Must be verified or rejected'
+                message: 'Invalid status. Must be ACCEPTED or REJECTED'
             });
         }
 
-        const nomination = await Nomination.findByPk(id);
+        const nomination = await prisma.nomination.findUnique({
+            where: { id }
+        });
 
         if (!nomination) {
             return res.status(404).json({
@@ -454,18 +617,121 @@ export const verifyNomination = async (req, res) => {
             });
         }
 
-        await nomination.update({ status });
+        const updatedNomination = await prisma.nomination.update({
+            where: { id },
+            data: { status },
+            include: {
+                user: {
+                    select: { id: true, name: true, email: true, rollNo: true }
+                }
+            }
+        });
+
+        await logActivity({
+            userId: req.user.id,
+            action: 'NOMINATION_STATUS_CHANGED',
+            metadata: { nominationId: id, status }
+        });
 
         res.status(200).json({
             success: true,
-            message: `Nomination ${status} successfully`,
-            nomination
+            message: `Nomination ${status.toLowerCase()} successfully`,
+            data: updatedNomination
         });
     } catch (error) {
         console.error('Verify nomination error:', error);
         res.status(500).json({
             success: false,
             message: 'Failed to verify nomination',
+            error: error.message
+        });
+    }
+};
+
+// @desc    Create admin account
+// @route   POST /api/superadmin/create-admin
+// @access  Private (Superadmin only)
+export const createAdmin = async (req, res) => {
+    try {
+        const { userId } = req.body;
+
+        if (!userId) {
+            return res.status(400).json({
+                success: false,
+                message: 'User ID is required'
+            });
+        }
+
+        const user = await prisma.user.findUnique({ where: { id: userId } });
+
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                message: 'User not found'
+            });
+        }
+
+        if (user.role === 'ADMIN' || user.role === 'SUPERADMIN') {
+            return res.status(400).json({
+                success: false,
+                message: `User is already ${user.role}`
+            });
+        }
+
+        const updatedUser = await prisma.user.update({
+            where: { id: userId },
+            data: { role: 'ADMIN' }
+        });
+
+        await logActivity({
+            userId: req.user.id,
+            action: 'ADMIN_CREATED',
+            metadata: { userId }
+        });
+
+        res.status(200).json({
+            success: true,
+            message: 'Admin account created successfully',
+            data: { ...updatedUser, password: undefined }
+        });
+    } catch (error) {
+        console.error('Create admin error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to create admin',
+            error: error.message
+        });
+    }
+};
+
+// @desc    List all users (for admin assignment)
+// @route   GET /api/superadmin/users
+// @access  Private (Superadmin only)
+export const getAllUsers = async (req, res) => {
+    try {
+        const users = await prisma.user.findMany({
+            select: {
+                id: true,
+                name: true,
+                email: true,
+                rollNo: true,
+                department: true,
+                role: true,
+                createdAt: true
+            },
+            orderBy: { createdAt: 'desc' }
+        });
+
+        res.status(200).json({
+            success: true,
+            count: users.length,
+            data: users
+        });
+    } catch (error) {
+        console.error('Get all users error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to get users',
             error: error.message
         });
     }

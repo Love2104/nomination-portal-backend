@@ -19,6 +19,8 @@ import {
 const router = express.Router();
 
 // Public routes
+router.post('/send-otp', validateRegistration, register);
+// Backwards-compatible alias
 router.post('/register', validateRegistration, register);
 router.post('/verify-otp', validateOTPVerification, verifyOTP);
 router.post('/login', validateLogin, login);

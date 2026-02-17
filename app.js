@@ -10,6 +10,8 @@ import supporterRoutes from './routes/supporter.js';
 import manifestoRoutes from './routes/manifesto.js';
 import reviewerRoutes from './routes/reviewer.js';
 import superadminRoutes from './routes/superadmin.js';
+import candidateRoutes from './routes/candidate.js';
+import adminRoutes from './routes/admin.js';
 
 dotenv.config();
 
@@ -45,13 +47,22 @@ app.get('/health', (req, res) => {
     });
 });
 
-// API Routes
+// API Routes (legacy /api prefix)
 app.use('/api/auth', authRoutes);
 app.use('/api/nominations', nominationRoutes);
 app.use('/api/supporters', supporterRoutes);
 app.use('/api/manifestos', manifestoRoutes);
 app.use('/api/reviewers', reviewerRoutes);
 app.use('/api/superadmin', superadminRoutes);
+
+// New top-level routes aligned with specification
+app.use('/auth', authRoutes);
+app.use('/candidate', candidateRoutes);
+app.use('/supporter', supporterRoutes);
+app.use('/manifesto', manifestoRoutes);
+app.use('/reviewer', reviewerRoutes);
+app.use('/admin', adminRoutes);
+app.use('/superadmin', superadminRoutes);
 
 // 404 handler
 app.use((req, res) => {

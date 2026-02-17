@@ -1,0 +1,177 @@
+// IITK Election Commission — Prisma Schema
+// Database: Neon PostgreSQL
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ──────────────────────────────────────────────
+
+enum Role {
+  STUDENT
+  CANDIDATE
+  REVIEWER
+  ADMIN
+  SUPERADMIN
+}
+
+enum ApplicationStatus {
+  DRAFT
+  PENDING
+  ACCEPTED
+  REJECTED
+}
+
+enum ManifestoPhase {
+  PHASE1
+  PHASE2
+  FINAL
+}
+
+enum ManifestoStatus {
+  SUBMITTED
+  LOCKED
+  REVIEWED
+  APPROVED
+  REJECTED
+}
+
+// ─── Models ─────────────────────────────────────────────
+
+model User {
+  id         String   @id @default(uuid())
+  email      String   @unique
+  password   String
+  role       Role     @default(STUDENT)
+  name       String
+  rollNo     String   @unique
+  department String
+  contact    String?
+  profilePic String?  // Cloudinary URL
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  // Relations
+  nomination         Nomination?
+  supporterRequests  SupporterRequest[] @relation("SupporterStudent")
+  candidateRequests  SupporterRequest[] @relation("SupporterCandidate")
+  activityLogs       ActivityLog[]
+}
+
+model OTP {
+  id        String   @id @default(uuid())
+  email     String
+  otpHash   String   @map("otp")
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
+
+model Nomination {
+  id         String            @id @default(uuid())
+  userId     String            @unique
+  user       User              @relation(fields: [userId], references: [id])
+  position   String
+  cpi        Float
+  status     ApplicationStatus @default(PENDING)
+  nominationLocked Boolean     @default(false)
+  createdAt  DateTime          @default(now())
+  updatedAt  DateTime          @updatedAt
+
+  // Relations
+  manifestos        Manifesto[]
+  supporterRequests SupporterRequest[]
+}
+
+model Manifesto {
+  id           String          @id @default(uuid())
+  nominationId String
+  nomination   Nomination      @relation(fields: [nominationId], references: [id])
+  phase        ManifestoPhase
+  fileName     String
+  fileUrl      String          // Cloudinary secure URL
+  cloudinaryId String          // Cloudinary public_id (for deletion)
+  status       ManifestoStatus @default(SUBMITTED)
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  // Relations
+  comments ReviewerComment[]
+
+  @@unique([nominationId, phase])
+}
+
+model ReviewerComment {
+  id           String   @id @default(uuid())
+  manifestoId  String
+  manifesto    Manifesto @relation(fields: [manifestoId], references: [id])
+  reviewerId   String   // Phase reviewer username (not a User FK)
+  reviewerName String
+  content      String
+  createdAt    DateTime @default(now())
+}
+
+model SupporterRequest {
+  id           String            @id @default(uuid())
+  studentId    String
+  student      User              @relation("SupporterStudent", fields: [studentId], references: [id])
+  candidateId  String
+  candidate    User              @relation("SupporterCandidate", fields: [candidateId], references: [id])
+  nominationId String
+  nomination   Nomination        @relation(fields: [nominationId], references: [id])
+  role         String            // proposer, seconder, campaigner
+  status       ApplicationStatus @default(PENDING)
+  createdAt    DateTime          @default(now())
+
+  @@unique([studentId, nominationId, role])
+}
+
+model SystemConfig {
+  id String @id @default(uuid())
+
+  // Nomination deadlines
+  nominationStart DateTime? @map("nominationStartDate")
+  nominationEnd   DateTime? @map("nominationEndDate")
+
+  // Campaigner deadlines
+  campaignerStart DateTime? @map("campaignerStartDate")
+  campaignerEnd   DateTime? @map("campaignerEndDate")
+
+  // Manifesto Phase 1 deadlines
+  manifestoPhase1Start DateTime? @map("manifestoPhase1StartDate")
+  manifestoPhase1End   DateTime? @map("manifestoPhase1EndDate")
+
+  // Manifesto Phase 2 deadlines
+  manifestoPhase2Start DateTime? @map("manifestoPhase2StartDate")
+  manifestoPhase2End   DateTime? @map("manifestoPhase2EndDate")
+
+  // Final Manifesto deadlines
+  manifestoFinalStart DateTime? @map("manifestoFinalStartDate")
+  manifestoFinalEnd   DateTime? @map("manifestoFinalEndDate")
+
+  // Supporter limits
+  maxProposers   Int @default(5)
+  maxSeconders   Int @default(5)
+  maxCampaigners Int @default(10)
+
+  // Reviewer credentials (JSON)
+  phase1ReviewerCredentials Json? @default("{\"username\": \"phase1_reviewer\", \"password\": \"change_me_phase1\"}")
+  phase2ReviewerCredentials Json? @default("{\"username\": \"phase2_reviewer\", \"password\": \"change_me_phase2\"}")
+  finalReviewerCredentials  Json? @default("{\"username\": \"final_reviewer\", \"password\": \"change_me_final\"}")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model ActivityLog {
+  id        String   @id @default(uuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+  action    String
+  metadata  Json?
+  createdAt DateTime @default(now())
+}

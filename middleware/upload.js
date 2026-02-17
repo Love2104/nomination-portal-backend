@@ -1,7 +1,7 @@
 import multer from 'multer';
 import path from 'path';
 
-// Configure multer for memory storage (we'll upload to Firebase)
+// Configure multer for memory storage (we'll upload to Cloudinary)
 const storage = multer.memoryStorage();
 
 // File filter - only allow PDFs

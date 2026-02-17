@@ -4,7 +4,8 @@ import {
     acceptSupporterRequest,
     rejectSupporterRequest,
     getCandidateSupporters,
-    getMyRequests
+    getMyRequests,
+    respondSupporterRequest
 } from '../controllers/supporterController.js';
 import { authenticate, isCandidate } from '../middleware/auth.js';
 import { validateSupporterRequest, validateUUID, validateCandidateParam } from '../middleware/validation.js';
@@ -18,6 +19,8 @@ router.get('/my-requests', authenticate, getMyRequests);
 // Candidate routes
 router.put('/:id/accept', authenticate, isCandidate, validateUUID, acceptSupporterRequest);
 router.put('/:id/reject', authenticate, isCandidate, validateUUID, rejectSupporterRequest);
+// New spec route: PATCH /supporter/respond
+router.patch('/respond', authenticate, isCandidate, respondSupporterRequest);
 
 // Public routes
 router.get('/candidate/:candidateId', validateCandidateParam, getCandidateSupporters);

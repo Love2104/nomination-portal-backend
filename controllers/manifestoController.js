@@ -1,8 +1,16 @@
-import { Manifesto, Nomination, ReviewerComment } from '../models/index.js';
+import prisma from '../prisma/client.js';
 import { getPhaseDeadlineStatus } from '../utils/deadlineValidator.js';
 import { uploadToCloudinary, deleteFromCloudinary } from '../utils/cloudinaryStorage.js';
+import { logActivity } from '../services/activityService.js';
 import https from 'https';
 import http from 'http';
+
+// Map frontend phase names to Prisma enum
+const phaseMap = {
+    phase1: 'PHASE1',
+    phase2: 'PHASE2',
+    final: 'FINAL'
+};
 
 // @desc    Upload manifesto
 // @route   POST /api/manifestos/upload
@@ -36,7 +44,7 @@ export const uploadManifesto = async (req, res) => {
         }
 
         // Find candidate's nomination
-        const nomination = await Nomination.findOne({
+        const nomination = await prisma.nomination.findUnique({
             where: { userId: req.user.id }
         });
 
@@ -47,16 +55,20 @@ export const uploadManifesto = async (req, res) => {
             });
         }
 
+        const prismaPhase = phaseMap[phase];
+
         // Check if manifesto already exists for this phase
-        const existingManifesto = await Manifesto.findOne({
+        const existingManifesto = await prisma.manifesto.findUnique({
             where: {
-                nominationId: nomination.id,
-                phase
+                nominationId_phase: {
+                    nominationId: nomination.id,
+                    phase: prismaPhase
+                }
             }
         });
 
         // If exists and locked, cannot update
-        if (existingManifesto && existingManifesto.status === 'locked') {
+        if (existingManifesto && existingManifesto.status === 'LOCKED') {
             return res.status(403).json({
                 success: false,
                 message: `Manifesto for ${phase} is locked and cannot be updated`
@@ -70,36 +82,55 @@ export const uploadManifesto = async (req, res) => {
             `manifestos/${phase}`
         );
 
-        // If updating existing manifesto, delete old file
+        // If updating existing manifesto, delete old file from Cloudinary
         if (existingManifesto) {
-            await deleteFromCloudinary(existingManifesto.firebasePath);
-            await existingManifesto.update({
-                fileName,
-                fileUrl,
-                firebasePath: publicId,
-                uploadedAt: new Date()
+            await deleteFromCloudinary(existingManifesto.cloudinaryId);
+
+            const updatedManifesto = await prisma.manifesto.update({
+                where: { id: existingManifesto.id },
+                data: {
+                    fileName,
+                    fileUrl,
+                    cloudinaryId: publicId
+                }
+            });
+
+            await logActivity({
+                userId: req.user.id,
+                action: 'MANIFESTO_UPDATED',
+                metadata: { manifestoId: updatedManifesto.id, phase }
             });
 
             return res.status(200).json({
                 success: true,
                 message: 'Manifesto updated successfully',
-                manifesto: existingManifesto
+                data: updatedManifesto
             });
         }
 
         // Create new manifesto
-        const manifesto = await Manifesto.create({
-            nominationId: nomination.id,
-            phase,
-            fileName,
-            fileUrl,
-            firebasePath: publicId,
-            status: 'submitted'
+        const manifesto = await prisma.manifesto.create({
+            data: {
+                nominationId: nomination.id,
+                phase: prismaPhase,
+                fileName,
+                fileUrl,
+                cloudinaryId: publicId,
+                status: 'SUBMITTED'
+            }
+        });
+
+        await logActivity({
+            userId: req.user.id,
+            action: 'MANIFESTO_UPLOADED',
+            metadata: { manifestoId: manifesto.id, phase }
         });
 
         res.status(201).json({
             success: true,
             message: 'Manifesto uploaded successfully',
+            data: manifesto,
+            // alias for existing frontend
             manifesto
         });
     } catch (error) {
@@ -118,18 +149,31 @@ export const uploadManifesto = async (req, res) => {
 export const getManifesto = async (req, res) => {
     try {
         const { nominationId, phase } = req.params;
+        const prismaPhase = phaseMap[phase];
 
-        const manifesto = await Manifesto.findOne({
+        if (!prismaPhase) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid phase'
+            });
+        }
+
+        const manifesto = await prisma.manifesto.findUnique({
             where: {
-                nominationId,
-                phase
-            },
-            include: [
-                {
-                    model: Nomination,
-                    include: ['candidate']
+                nominationId_phase: {
+                    nominationId,
+                    phase: prismaPhase
                 }
-            ]
+            },
+            include: {
+                nomination: {
+                    include: {
+                        user: {
+                            select: { id: true, name: true, email: true, rollNo: true, department: true, profilePic: true }
+                        }
+                    }
+                }
+            }
         });
 
         if (!manifesto) {
@@ -141,6 +185,8 @@ export const getManifesto = async (req, res) => {
 
         res.status(200).json({
             success: true,
+            data: manifesto,
+            // alias for existing frontend
             manifesto
         });
     } catch (error) {
@@ -160,15 +206,15 @@ export const getNominationManifestos = async (req, res) => {
     try {
         const { nominationId } = req.params;
 
-        const manifestos = await Manifesto.findAll({
+        const manifestos = await prisma.manifesto.findMany({
             where: { nominationId },
-            order: [['phase', 'ASC']]
+            orderBy: { phase: 'asc' }
         });
 
         res.status(200).json({
             success: true,
             count: manifestos.length,
-            manifestos
+            data: manifestos
         });
     } catch (error) {
         console.error('Get nomination manifestos error:', error);
@@ -180,6 +226,48 @@ export const getNominationManifestos = async (req, res) => {
     }
 };
 
+// @desc    Get all manifestos for a candidate (by userId)
+// @route   GET /manifesto/:candidateId
+// @access  Private (typically candidate, admin, reviewer via JWT)
+export const getCandidateManifestos = async (req, res) => {
+    try {
+        const { candidateId } = req.params;
+
+        const nomination = await prisma.nomination.findUnique({
+            where: { userId: candidateId }
+        });
+
+        if (!nomination) {
+            return res.status(404).json({
+                success: false,
+                message: 'No nomination found for candidate',
+                data: null
+            });
+        }
+
+        const manifestos = await prisma.manifesto.findMany({
+            where: { nominationId: nomination.id },
+            orderBy: { phase: 'asc' }
+        });
+
+        return res.status(200).json({
+            success: true,
+            message: 'Candidate manifestos',
+            data: {
+                nominationId: nomination.id,
+                manifestos
+            }
+        });
+    } catch (error) {
+        console.error('Get candidate manifestos error:', error);
+        return res.status(500).json({
+            success: false,
+            message: 'Failed to get candidate manifestos',
+            data: null
+        });
+    }
+};
+
 // @desc    Delete manifesto (before deadline)
 // @route   DELETE /api/manifestos/:id
 // @access  Private (Candidate only)
@@ -187,8 +275,9 @@ export const deleteManifesto = async (req, res) => {
     try {
         const { id } = req.params;
 
-        const manifesto = await Manifesto.findByPk(id, {
-            include: [Nomination]
+        const manifesto = await prisma.manifesto.findUnique({
+            where: { id },
+            include: { nomination: true }
         });
 
         if (!manifesto) {
@@ -199,7 +288,7 @@ export const deleteManifesto = async (req, res) => {
         }
 
         // Check ownership
-        if (manifesto.Nomination.userId !== req.user.id) {
+        if (manifesto.nomination.userId !== req.user.id) {
             return res.status(403).json({
                 success: false,
                 message: 'You can only delete your own manifesto'
@@ -207,15 +296,18 @@ export const deleteManifesto = async (req, res) => {
         }
 
         // Check if locked
-        if (manifesto.status === 'locked') {
+        if (manifesto.status === 'LOCKED') {
             return res.status(403).json({
                 success: false,
                 message: 'Manifesto is locked and cannot be deleted'
             });
         }
 
-        // Check if deadline is still open
-        const isOpen = await getPhaseDeadlineStatus(manifesto.phase);
+        // Reverse-map phase for deadline check
+        const reversePhaseMap = { PHASE1: 'phase1', PHASE2: 'phase2', FINAL: 'final' };
+        const frontendPhase = reversePhaseMap[manifesto.phase];
+
+        const isOpen = await getPhaseDeadlineStatus(frontendPhase);
         if (!isOpen) {
             return res.status(403).json({
                 success: false,
@@ -224,10 +316,16 @@ export const deleteManifesto = async (req, res) => {
         }
 
         // Delete from Cloudinary
-        await deleteFromCloudinary(manifesto.firebasePath);
+        await deleteFromCloudinary(manifesto.cloudinaryId);
 
         // Delete from database
-        await manifesto.destroy();
+        await prisma.manifesto.delete({ where: { id } });
+
+        await logActivity({
+            userId: req.user.id,
+            action: 'MANIFESTO_DELETED',
+            metadata: { manifestoId: id }
+        });
 
         res.status(200).json({
             success: true,
@@ -250,7 +348,9 @@ export const proxyManifestoPdf = async (req, res) => {
     try {
         const { id } = req.params;
 
-        const manifesto = await Manifesto.findByPk(id);
+        const manifesto = await prisma.manifesto.findUnique({
+            where: { id }
+        });
 
         if (!manifesto) {
             return res.status(404).json({
@@ -262,7 +362,7 @@ export const proxyManifestoPdf = async (req, res) => {
         const fileUrl = manifesto.fileUrl;
         console.log('Proxying PDF for manifesto:', manifesto.id, fileUrl);
 
-        // Fetch the PDF from Cloudinary
+        // Fetch the PDF from Cloudinary and pipe to response
         const fetchPdf = (url, redirectCount = 0) => {
             if (redirectCount > 5) {
                 if (!res.headersSent) {
@@ -274,7 +374,6 @@ export const proxyManifestoPdf = async (req, res) => {
             const mod = url.startsWith('https') ? https : http;
 
             mod.get(url, (response) => {
-                // Follow redirects
                 if ([301, 302, 303, 307, 308].includes(response.statusCode)) {
                     console.log('Redirect to:', response.headers.location);
                     response.destroy();
@@ -292,7 +391,6 @@ export const proxyManifestoPdf = async (req, res) => {
                     return;
                 }
 
-                // Serve PDF inline
                 res.setHeader('Content-Type', 'application/pdf');
                 res.setHeader('Content-Disposition', `inline; filename="${manifesto.fileName || 'manifesto.pdf'}"`);
                 res.setHeader('Cache-Control', 'public, max-age=3600');
