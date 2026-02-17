@@ -24,9 +24,9 @@ export const validateRegistration = [
         .isEmail()
         .withMessage('Please provide a valid email')
         .custom((value) => {
-            if (!value.endsWith('@iitk.ac.in')) {
-                throw new Error('Email must be an IITK email (@iitk.ac.in)');
-            }
+            // if (!value.endsWith('@iitk.ac.in')) {
+            //     throw new Error('Email must be an IITK email (@iitk.ac.in)');
+            // }
             return true;
         }),
     handleValidationErrors
