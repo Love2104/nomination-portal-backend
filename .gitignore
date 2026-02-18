@@ -10,6 +10,7 @@ yarn-error.log*
 .env.*.local
 
 # Firebase service account
+serviceAccount.json
 firebase-service-account.json
 *-firebase-adminsdk-*.json
 
