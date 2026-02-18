@@ -7,7 +7,10 @@ import {
     updateProfile,
     becomeCandidate,
     forgotPassword,
-    resetPassword
+    resetPassword,
+    registerWithToken,
+    checkEmail,
+    resetPasswordWithToken
 } from '../controllers/authController.js';
 import { authenticate } from '../middleware/auth.js';
 import {
@@ -27,9 +30,15 @@ router.post('/login', validateLogin, login);
 router.post('/forgot-password', forgotPassword);
 router.post('/reset-password', resetPassword);
 
+// Firebase token-based routes (no SMTP needed)
+router.post('/register-with-token', registerWithToken);
+router.post('/check-email', checkEmail);
+router.post('/reset-password-with-token', resetPasswordWithToken);
+
 // Protected routes
 router.get('/profile', authenticate, getProfile);
 router.put('/profile', authenticate, updateProfile);
 router.post('/become-candidate', authenticate, becomeCandidate);
 
 export default router;
+

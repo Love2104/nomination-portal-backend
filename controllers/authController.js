@@ -1,7 +1,7 @@
 import prisma from '../prisma/client.js';
-import { sendOTPEmail } from '../utils/emailService.js';
 import { generateToken } from '../middleware/auth.js';
 import bcrypt from 'bcryptjs';
+import admin from '../config/firebase.js';
 
 // @desc    Register user - Send OTP
 // @route   POST /api/auth/register
@@ -394,6 +394,199 @@ export const resetPassword = async (req, res) => {
         });
     } catch (error) {
         console.error('Reset password error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to reset password',
+            error: error.message
+        });
+    }
+};
+
+// @desc    Register with Firebase ID token (email already verified by Firebase)
+// @route   POST /api/auth/register-with-token
+// @access  Public
+export const registerWithToken = async (req, res) => {
+    try {
+        const { idToken, password, name, rollNo, department, phone } = req.body;
+
+        if (!idToken) {
+            return res.status(400).json({
+                success: false,
+                message: 'Firebase ID token is required'
+            });
+        }
+
+        // Verify Firebase ID token
+        let decodedToken;
+        try {
+            decodedToken = await admin.auth().verifyIdToken(idToken);
+        } catch (firebaseErr) {
+            console.error('Firebase token verification failed:', firebaseErr.message);
+            return res.status(401).json({
+                success: false,
+                message: 'Invalid or expired verification. Please try again.'
+            });
+        }
+
+        const email = decodedToken.email;
+        if (!email) {
+            return res.status(400).json({
+                success: false,
+                message: 'Email not found in Firebase token'
+            });
+        }
+
+        console.log(`✅ Firebase token verified for: ${email}`);
+
+        // Check if user already exists
+        const existingUser = await prisma.user.findUnique({ where: { email } });
+        if (existingUser) {
+            return res.status(400).json({
+                success: false,
+                message: 'User with this email already exists'
+            });
+        }
+
+        // Hash password
+        const salt = await bcrypt.genSalt(10);
+        const hashedPassword = await bcrypt.hash(password, salt);
+
+        // Create user
+        const user = await prisma.user.create({
+            data: {
+                email,
+                password: hashedPassword,
+                name,
+                rollNo,
+                department,
+                contact: phone,
+                role: 'STUDENT'
+            }
+        });
+
+        // Generate JWT token
+        const token = generateToken(user.id);
+
+        console.log(`✅ User registered: ${email}`);
+
+        res.status(201).json({
+            success: true,
+            message: 'Registration successful',
+            token,
+            user: { ...user, password: undefined }
+        });
+    } catch (error) {
+        console.error('Register with token error:', error);
+
+        if (error.code === 'P2002') {
+            const field = error.meta?.target?.[0];
+            return res.status(400).json({
+                success: false,
+                message: `${field === 'rollNo' ? 'Roll number' : 'Email'} already exists`
+            });
+        }
+
+        res.status(500).json({
+            success: false,
+            message: 'Registration failed. Please try again.',
+            error: error.message
+        });
+    }
+};
+
+// @desc    Check if email exists (for forgot password)
+// @route   POST /api/auth/check-email
+// @access  Public
+export const checkEmail = async (req, res) => {
+    try {
+        const { email } = req.body;
+
+        const user = await prisma.user.findUnique({ where: { email } });
+
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                message: 'No account found with this email address'
+            });
+        }
+
+        res.status(200).json({
+            success: true,
+            message: 'Email found'
+        });
+    } catch (error) {
+        console.error('Check email error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to check email',
+            error: error.message
+        });
+    }
+};
+
+// @desc    Reset Password with Firebase ID token
+// @route   POST /api/auth/reset-password-with-token
+// @access  Public
+export const resetPasswordWithToken = async (req, res) => {
+    try {
+        const { idToken, newPassword } = req.body;
+
+        if (!idToken) {
+            return res.status(400).json({
+                success: false,
+                message: 'Firebase ID token is required'
+            });
+        }
+
+        // Verify Firebase ID token
+        let decodedToken;
+        try {
+            decodedToken = await admin.auth().verifyIdToken(idToken);
+        } catch (firebaseErr) {
+            console.error('Firebase token verification failed:', firebaseErr.message);
+            return res.status(401).json({
+                success: false,
+                message: 'Invalid or expired verification. Please try again.'
+            });
+        }
+
+        const email = decodedToken.email;
+        if (!email) {
+            return res.status(400).json({
+                success: false,
+                message: 'Email not found in Firebase token'
+            });
+        }
+
+        console.log(`✅ Firebase token verified for password reset: ${email}`);
+
+        // Find user
+        const user = await prisma.user.findUnique({ where: { email } });
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                message: 'User not found'
+            });
+        }
+
+        // Hash new password
+        const salt = await bcrypt.genSalt(10);
+        const hashedPassword = await bcrypt.hash(newPassword, salt);
+
+        // Update password
+        await prisma.user.update({
+            where: { id: user.id },
+            data: { password: hashedPassword }
+        });
+
+        console.log(`✅ Password reset for: ${email}`);
+
+        res.status(200).json({
+            success: true,
+            message: 'Password reset successful. You can now login with your new password.'
+        });
+    } catch (error) {
+        console.error('Reset password with token error:', error);
         res.status(500).json({
             success: false,
             message: 'Failed to reset password',
