@@ -22,13 +22,7 @@ export const handleValidationErrors = (req, res, next) => {
 export const validateRegistration = [
     body('email')
         .isEmail()
-        .withMessage('Please provide a valid email')
-        .custom((value) => {
-            // if (!value.endsWith('@iitk.ac.in')) {
-            //     throw new Error('Email must be an IITK email (@iitk.ac.in)');
-            // }
-            return true;
-        }),
+        .withMessage('Please provide a valid email'),
     handleValidationErrors
 ];
 

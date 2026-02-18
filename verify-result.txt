@@ -1,0 +1,7 @@
+=== Email Config Verification ===
+EMAIL_HOST: smtp.gmail.com
+EMAIL_PORT: 465
+EMAIL_USER: lovechourasia2021@gmail.com
+EMAIL_PASSWORD: SET (hidden)
+Module imported OK
+SUCCESS: Email sent!

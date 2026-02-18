@@ -36,8 +36,8 @@ export const register = async (req, res) => {
             }
         });
 
-        // Send OTP email via GSMTP (Gmail SMTP)
-        await sendOTPEmail(email, otp);
+        // Send OTP email (throw on failure so client sees error)
+        await sendOTPEmail(email, otp, 'verification');
 
         res.status(200).json({
             success: true,
@@ -314,7 +314,7 @@ export const forgotPassword = async (req, res) => {
             }
         });
 
-        // Send OTP email via GSMTP (Gmail SMTP)
+        // Send OTP email (throw on failure so client sees error)
         await sendOTPEmail(email, otp, 'reset');
 
         res.status(200).json({

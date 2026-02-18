@@ -1,11 +1,11 @@
-import { generateOTP, sendOTPEmail } from './utils/emailService.js';
+import { sendOTPEmail } from './utils/emailService.js';
 import dotenv from 'dotenv';
 dotenv.config();
 
 const main = async () => {
     console.log('--- Testing Email Service ---');
 
-    const otp = generateOTP();
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
     console.log(`Generated OTP: ${otp}`);
 
     // Test Case 1: Mock Email (if creds missing) or Real Email (if creds present)
