@@ -4,26 +4,19 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 // ---------------------------------------------------------------------------
-// Configuration – read once, log at import time so we know what's loaded
+// Gmail SMTP Configuration
 // ---------------------------------------------------------------------------
-const EMAIL_HOST = process.env.EMAIL_HOST || 'smtp.gmail.com';
-const EMAIL_PORT = Number(process.env.EMAIL_PORT || 465);
-const EMAIL_SECURE =
-  typeof process.env.EMAIL_SECURE === 'string'
-    ? process.env.EMAIL_SECURE.toLowerCase() === 'true'
-    : EMAIL_PORT === 465;
 const EMAIL_USER = process.env.EMAIL_USER;
 const EMAIL_PASSWORD = process.env.EMAIL_PASSWORD;
 
-console.log('📧 Email config loaded:');
-console.log(`   HOST     = ${EMAIL_HOST}`);
-console.log(`   PORT     = ${EMAIL_PORT}`);
-console.log(`   SECURE   = ${EMAIL_SECURE}`);
-console.log(`   USER     = ${EMAIL_USER ? EMAIL_USER : '⚠️  NOT SET'}`);
+console.log('📧 Email config loaded (Gmail SMTP):');
+console.log(`   HOST     = smtp.gmail.com`);
+console.log(`   PORT     = 587 (STARTTLS)`);
+console.log(`   USER     = ${EMAIL_USER || '⚠️  NOT SET'}`);
 console.log(`   PASSWORD = ${EMAIL_PASSWORD ? '••••••••' : '⚠️  NOT SET'}`);
 
 // ---------------------------------------------------------------------------
-// Lazy transporter – created on first send so env vars are guaranteed loaded
+// Lazy transporter — created on first send
 // ---------------------------------------------------------------------------
 let _transporter = null;
 
@@ -31,38 +24,38 @@ function getTransporter() {
   if (_transporter) return _transporter;
 
   _transporter = nodemailer.createTransport({
-    host: EMAIL_HOST,
-    port: EMAIL_PORT,
-    secure: EMAIL_SECURE,
-    auth:
-      EMAIL_USER && EMAIL_PASSWORD
-        ? { user: EMAIL_USER, pass: EMAIL_PASSWORD }
-        : undefined,
-    // ── Generous timeouts (Render cold-starts can be slow) ──
-    connectionTimeout: 30_000,   // 30 s to open TCP socket
-    greetingTimeout: 30_000,     // 30 s for SMTP banner
-    socketTimeout: 60_000,       // 60 s for any subsequent response
-    // ── Connection pooling ──
+    service: 'gmail',
+    host: 'smtp.gmail.com',
+    port: 587,
+    secure: false, // STARTTLS
+    auth: {
+      user: EMAIL_USER,
+      pass: EMAIL_PASSWORD,
+    },
+    connectionTimeout: 30_000,
+    greetingTimeout: 30_000,
+    socketTimeout: 60_000,
     pool: true,
     maxConnections: 3,
     maxMessages: 50,
-    // ── Network ──
-    family: 4,                   // force IPv4
-    tls: { rejectUnauthorized: false }, // tolerate self-signed certs
+    family: 4,
+    tls: {
+      rejectUnauthorized: false,
+      ciphers: 'SSLv3',
+    },
   });
 
-  console.log('✅ Nodemailer transporter created (pooled, generous timeouts)');
+  console.log('✅ Nodemailer transporter created (Gmail SMTP, port 587)');
   return _transporter;
 }
 
 // ---------------------------------------------------------------------------
-// sendOTPEmail – the only public export
+// sendOTPEmail
 // ---------------------------------------------------------------------------
 export const sendOTPEmail = async (email, otp, purpose = 'verification') => {
-  // ── Guard: credentials must be present ──
   if (!EMAIL_USER || !EMAIL_PASSWORD) {
     console.error('❌ EMAIL_USER or EMAIL_PASSWORD is missing in env');
-    throw new Error('Email service is not configured – missing EMAIL_USER / EMAIL_PASSWORD');
+    throw new Error('Email service not configured – missing EMAIL_USER / EMAIL_PASSWORD');
   }
 
   const isReset = purpose === 'reset';
@@ -84,7 +77,7 @@ export const sendOTPEmail = async (email, otp, purpose = 'verification') => {
     `,
   };
 
-  console.log(`📤 Sending ${purpose} OTP email to ${email} …`);
+  console.log(`📤 Sending ${purpose} OTP email to ${email} via Gmail SMTP …`);
 
   try {
     const transporter = getTransporter();
@@ -99,7 +92,6 @@ export const sendOTPEmail = async (email, otp, purpose = 'verification') => {
     console.error(`   Error message : ${error.message}`);
     if (error.code) console.error(`   Error code    : ${error.code}`);
     if (error.response) console.error(`   SMTP response : ${error.response}`);
-    // Re-throw so the controller returns { success: false }
     throw error;
   }
 };
